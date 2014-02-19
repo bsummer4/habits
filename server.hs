@@ -1,27 +1,20 @@
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax #-}
 
-import qualified Network.Wai as Warp
-import Network.Wai.Handler.Warp (run)
-import Network.HTTP.Types.Status
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Char8
 import qualified Data.CaseInsensitive as CI
 import Data.CaseInsensitive (CI)
 import Data.List (intersperse)
+import Data.String (fromString)
 import qualified Data.Text as Text
+import Network.HTTP.Types.Status (status200, status404)
+import Network.Wai.Handler.Warp (run)
+import Prelude.Unicode ((∘))
+import qualified Network.Wai as Warp
 import qualified System.Directory as Dir
-import Prelude.Unicode
-
-bsPack = Data.ByteString.Char8.pack
-bsUnpack = Data.ByteString.Char8.unpack
-lbsPack = Data.ByteString.Lazy.Char8.pack
-lbsUnpack = Data.ByteString.Lazy.Char8.unpack
 
 fileExtension ∷ String → Maybe String
 fileExtension path = r [] $ reverse path where
-	r acc [] = Nothing
+	r _ [] = Nothing
 	r acc ('.':_) = Just $ reverse acc
 	r acc (c:cs) = r (c:acc) cs
 
@@ -39,15 +32,18 @@ deriveContentType path = case fileExtension path of
 sendFile ∷ String → Warp.Response
 sendFile path = Warp.responseFile status200 hdr path Nothing where
 	hdr ∷ [(CI BS.ByteString, BS.ByteString)]
-	hdr = [("content/type", bsPack $ deriveContentType $ path)]
+	hdr = [("content/type", fromString $ deriveContentType $ path)]
+
+textPlain ∷ [(CI BS.ByteString, BS.ByteString)]
+textPlain = [("content/type", "text/plain")]
 
 sendCaptions ∷ Warp.Response
 sendCaptions = Warp.responseFile status200 textPlain "./captions" Nothing
 
+main :: IO()
 main = do
 	dirList ← Dir.getDirectoryContents "./pics"
-	let picList = lbsPack $ unlines $ filter (not∘all(=='.')) $ dirList
-	let textPlain = [("content/type", "text/plain")]
+	let picList = fromString $ unlines $ filter (not∘all(=='.')) $ dirList
 	let route path = case path of
 		[]            → route ["index.html"]
 		["pics"]      → Warp.responseLBS status200 textPlain picList
