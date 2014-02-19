@@ -1,0 +1,7 @@
+This is a webapp that displays a random slideshow of a set of images and
+captions. It currently doesn't do anything besides serve files.
+
+TODO Maybe it would be better to let users specify their own urls for images?
+	Yeah, sure, but let's get things working the dumb way first.
+	That requires persistent data structures, logins, sessions, etc.
+	The current approach requires nothing.
