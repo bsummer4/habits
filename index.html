@@ -1,4 +1,46 @@
-<html>
-<head><script src="/UI.js"></script></head>
-<body></body>
+<html><head></head><body>
+
+<p><img id="theimg" width="100%"></img></p>
+
+<script>
+var lines = function(str) {
+	var r = str.split("\n");
+	if ((r[r.length-1]).length == 0) { r.pop(); }
+	return r; };
+
+var getPicList = function() {
+	var r = new XMLHttpRequest();
+	r.open("GET", "/pics", false);
+	r.send();
+	return lines(r.responseText); };
+
+picList = getPicList();
+
+for (var i in picList) { console.log(picList[i]); }
+
+var i = 0;
+var setupKeys = null;
+var next = null;
+
+next = function() {
+	if (picList.length ==0) return;
+	if (i >= picList.length) { i=0; }
+	var imgNode = document.getElementById("theimg");
+	imgNode.src= "/pics/" + picList[i];
+	i = i + 1;
+	setupKeys(); };
+
+setupKeys = function() {
+	document.getElementById("theimg").onclick = (function(event) { next(); })
+	document.onkeypress = (function(event) {
+		if (event.which == 0) return;
+		char = String.fromCharCode(event.which);
+		switch (char) {
+			case 'l': case 'L': next(); break;
+			defeault: break; };});};
+
+next();
+
+</script>
+</body>
 </html>

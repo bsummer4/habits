@@ -15,33 +15,37 @@ import qualified System.Directory as Dir
 fileExtension ∷ String → Maybe String
 fileExtension path = r [] $ reverse path where
 	r _ [] = Nothing
-	r acc ('.':_) = Just $ reverse acc
+	r acc ('.':_) = Just acc
 	r acc (c:cs) = r (c:acc) cs
 
 deriveContentType ∷ String → String
 deriveContentType path = case fileExtension path of
 	Just "html" → "text/html"
-	Just "js" → "application/javascript"
-	Just "jpg" → "image/jpeg"
+	Just "js"   → "application/javascript"
+	Just "jpg"  → "image/jpeg"
 	Just "jpeg" → "image/jpeg"
 	Just "webp" → "image/webp"
-	Just "gif" → "image/gif"
-	_ → "text/plain"
+	Just "gif"  → "image/gif"
+	_           → "text/plain"
 
 -- TODO 404 if a file doesn't exist.
 sendFile ∷ String → Warp.Response
 sendFile path = Warp.responseFile status200 hdr path Nothing where
 	hdr ∷ [(CI BS.ByteString, BS.ByteString)]
-	hdr = [("content/type", fromString $ deriveContentType $ path)]
+	hdr = [("Content-Type", fromString $ deriveContentType $ path)]
 
 textPlain ∷ [(CI BS.ByteString, BS.ByteString)]
-textPlain = [("content/type", "text/plain")]
+textPlain = [("Content-Type", "text/plain")]
 
 sendCaptions ∷ Warp.Response
 sendCaptions = Warp.responseFile status200 textPlain "./captions" Nothing
 
-main :: IO()
+ls ∷ String → IO [String]
+ls path = Dir.getDirectoryContents path >>= return∘(filter $ not∘all(=='.'))
+
+main ∷ IO()
 main = do
+	-- picList ← ls >>= return ∘ unlines ∘ map fromString
 	dirList ← Dir.getDirectoryContents "./pics"
 	let picList = fromString $ unlines $ filter (not∘all(=='.')) $ dirList
 	let route path = case path of
