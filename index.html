@@ -1,6 +1,17 @@
-<html><head></head><body>
+<html><head><style>
 
-<p><img id="theimg" width="100%"></img></p>
+img {
+	max-width: 100%;
+	height: 100%;
+	position: fixed;
+	left: 0; }
+	top: 0; }
+
+
+
+</style></head><body>
+
+<p><img id="theimg"></img></p>
 
 <script>
 var lines = function(str) {
@@ -8,38 +19,50 @@ var lines = function(str) {
 	if ((r[r.length-1]).length == 0) { r.pop(); }
 	return r; };
 
+var shuffle = function (o) {
+	for (var j, x, i = o.length ; i;) {
+		j=Math.floor(Math.random() * i);
+		x=o[--i]; o[i]=o[j]; o[j]=x; }
+	return o; };
+
 var getPicList = function() {
 	var r = new XMLHttpRequest();
 	r.open("GET", "/pics", false);
 	r.send();
 	return lines(r.responseText); };
 
-picList = getPicList();
+picList = shuffle(getPicList());
 
 for (var i in picList) { console.log(picList[i]); }
 
 var i = 0;
 var setupKeys = null;
 var next = null;
+var slideshow = false;
 
-next = function() {
-	if (picList.length ==0) return;
+next = function(diff) {
+	i = i + diff;
+	if (picList.length==0) return;
 	if (i >= picList.length) { i=0; }
+	if (i < 0) { i=picList.length-1; }
 	var imgNode = document.getElementById("theimg");
 	imgNode.src= "/pics/" + picList[i];
-	i = i + 1;
 	setupKeys(); };
 
 setupKeys = function() {
-	document.getElementById("theimg").onclick = (function(event) { next(); })
+	document.getElementById("theimg").onclick = (function(event) { next(1); })
 	document.onkeypress = (function(event) {
 		if (event.which == 0) return;
 		char = String.fromCharCode(event.which);
 		switch (char) {
-			case 'l': case 'L': next(); break;
+			case 'l': case 'L': next(1); break;
+			case 'h': case 'H': next(-1); break;
+			case ' ': if (slideshow) {slideshow=false;} else {slideshow=true;};
 			defeault: break; };});};
 
-next();
+next(0);
+
+window.setInterval(function(){ if (slideshow) { next(1); }}, 5000);
 
 </script>
 </body>
