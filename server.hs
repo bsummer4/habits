@@ -7,9 +7,16 @@
 -- TODO Write a simple client.
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 import Prelude.Unicode
 import Control.Concurrent.MVar
+import Data.Acid
+import Control.Monad.State
+import Control.Monad.Reader
+import Data.SafeCopy
+import Data.Typeable
 import Data.Maybe
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -24,29 +31,53 @@ import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import qualified Data.Aeson as J
 
--- [[Application Logic]]
+
+-- [[Data]]
 type URL = Text
 type User = Text
+data Data = Data(Map User [URL]) deriving (Show, Typeable)
+
+delURL ∷ User → URL → Data → Data
+delURL user url (Data d) = Data(M.alter f user d) where
+	f row = Just $ filter (/= url) $ fromMaybe [] row
+
+addURL ∷ User → URL → Data → Data
+addURL user url (Data d) = Data(M.alter (Just∘f) user d) where
+	f row = case row of {Nothing→[url]; (Just urls)→url:urls}
+
+getURLs ∷ User → Data → [URL]
+getURLs user (Data d) = fromMaybe [] $ M.lookup user d
+
+
+-- [[Database]]
+type DB = AcidState Data
+
+writeData ∷ Data -> Update Data ()
+writeData (Data db) = put (Data db)
+
+queryData ∷ Query Data Data
+queryData = ask
+
+$(deriveSafeCopy 0 'base ''Data)
+$(makeAcidic ''Data ['writeData, 'queryData])
+-- ‘makeAcidicُ’ creates the constructors ‘QueryData’ and ‘WriteData.’
+
+getData ∷ DB -> IO Data
+getData db = query db QueryData
+
+modifyData ∷ DB -> (Data -> Data) -> IO()
+modifyData db f = getData db >>= (update db∘WriteData∘f) >> return()
+
+
+-- [[Application Logic]]
 data Req = AddURL User URL | DelURL User URL | GetURLs User
-data Resp = Ok | Urls [URL]
-type DB = Map User [URL]
+data Resp = Ok | URLs [URL]
 
-addUrl ∷ URL → Maybe [URL] → [URL]
-addUrl url row = case row of {Nothing→[url]; (Just urls)→url:urls}
-
-delUrl ∷ URL → Maybe [URL] → [URL]
-delUrl url Nothing = []
-delUrl url (Just row) = filter (/= url) row
-
-respond ∷ MVar DB → Req → IO Resp
+respond ∷ DB → Req → IO Resp
 respond db req = case req of
-	AddURL user url → modifyMVar db $ \t →
-		return (M.alter (Just∘addUrl url) user t, Ok)
-	GetURLs user → do
-		userT ← readMVar db
-		return $ Urls $ fromMaybe [] $ M.lookup user userT
-	DelURL user url → modifyMVar db $ \t →
-		return (M.alter (Just∘delUrl url) user t, Ok)
+	AddURL user url → modifyData db (addURL user url) >> return Ok
+	GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
+	DelURL user url → modifyData db (delURL user url) >> return Ok
 
 
 -- [[HTTP Requests and Responses]]
@@ -56,7 +87,7 @@ reqContentType ∷ W.Request → Maybe Text
 reqContentType = fmap T.decodeUtf8 ∘ lookup "content-type" ∘ W.requestHeaders
 
 urlFromQuery ∷ ByteString → URL
-urlFromQuery q = T.decodeUtf8 q -- TODO Actually extract the url from the query.
+urlFromQuery q = T.decodeUtf8 q
 
 decRequest ∷ W.Request → Maybe Req
 decRequest r =
@@ -69,10 +100,11 @@ decRequest r =
 encResponse ∷ Maybe Resp → W.Response
 encResponse Nothing = W.responseLBS W.status404 [] ""
 encResponse (Just Ok) = W.responseLBS W.status204 [] ""
-encResponse (Just (Urls us)) = W.responseLBS W.status200 json $ J.encode us
+encResponse (Just (URLs us)) = W.responseLBS W.status200 json $ J.encode us
 
-app ∷ MVar DB → W.Request → IO W.Response
+app ∷ DB → W.Request → IO W.Response
 app db webreq = do
+	getData db >>= putStrLn∘("STATE: "++)∘show
 	let req = decRequest webreq
 	resp ← case req of
 		Nothing → return Nothing
@@ -81,5 +113,5 @@ app db webreq = do
 
 main ∷ IO()
 main = do
-	db ← newMVar(M.empty∷DB)
-	W.run 5003 $ app db
+	db ← openLocalState (Data M.empty)
+	W.run 5005 $ app (db∷DB)
