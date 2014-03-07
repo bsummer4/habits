@@ -1,135 +1,85 @@
+-- TODO Complain about attempts to delete non-existant urls.
+-- TODO Better Response Codes
+--   200 OK, 201 Created, 204 No Content
+--   400 Bad Request, 404 Not Found, 403 Forbidden, 401 Unauthorized
+-- TODO Support PUT requests on a user to set the URL list with a JSON array.
+-- TODO Actually parse out the '?url=URL' query on POST requests.
+-- TODO Write a simple client.
+
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 
-import qualified Data.ByteString as BS
-import qualified Data.CaseInsensitive as CI
-import Data.CaseInsensitive (CI)
-import Data.List (intersperse)
-import Data.String (fromString)
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LText
-import Network.HTTP.Types.Status (status200, status404)
-import Network.Wai.Handler.Warp (run)
-import Prelude.Unicode ((∘))
-import qualified Network.Wai as Warp
-import qualified System.Directory as Dir
+import Prelude.Unicode
+import Control.Concurrent.MVar
+import Data.Maybe
+import Data.Map (Map)
+import qualified Data.Map as M
+import Data.ByteString (ByteString)
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
+import qualified Network.HTTP.Types as W
+import qualified Network.HTTP.Types.Status as W
+import qualified Network.Wai as W
+import qualified Network.Wai.Handler.Warp as W
+import qualified Data.Aeson as J
 
-import Text.Hamlet (shamlet)
-import Text.Julius (Javascript, JavascriptUrl, js, renderJavascript, rawJS)
-import Text.Blaze.Html.Renderer.String (renderHtml)
-import Data.Char (toLower)
-import Data.List (sort)
+-- [[Application Logic]]
+type URL = Text
+type User = Text
+data Req = AddURL User URL | DelURL User URL | GetURLs User
+data Resp = Ok | Urls [URL]
+type DB = Map User [URL]
 
-fileExtension ∷ String → Maybe String
-fileExtension path = r [] $ reverse path where
-	r _ [] = Nothing
-	r acc ('.':_) = Just acc
-	r acc (c:cs) = r (c:acc) cs
+addUrl ∷ URL → Maybe [URL] → [URL]
+addUrl url row = case row of {Nothing→[url]; (Just urls)→url:urls}
 
-deriveContentType ∷ String → String
-deriveContentType path = case fileExtension path of
-	Just "html" → "text/html"
-	Just "js"   → "application/javascript"
-	Just "jpg"  → "image/jpeg"
-	Just "jpeg" → "image/jpeg"
-	Just "webp" → "image/webp"
-	Just "gif"  → "image/gif"
-	_           → "text/plain"
+delUrl ∷ URL → Maybe [URL] → [URL]
+delUrl url Nothing = []
+delUrl url (Just row) = filter (/= url) row
 
--- TODO 404 if a file doesn't exist.
-sendFile ∷ String → Warp.Response
-sendFile path = Warp.responseFile status200 hdr path Nothing where
-	hdr ∷ [(CI BS.ByteString, BS.ByteString)]
-	hdr = [("Content-Type", fromString $ deriveContentType $ path)]
+respond ∷ MVar DB → Req → IO Resp
+respond db req = case req of
+	AddURL user url → modifyMVar db $ \t →
+		return (M.alter (Just∘addUrl url) user t, Ok)
+	GetURLs user → do
+		userT ← readMVar db
+		return $ Urls $ fromMaybe [] $ M.lookup user userT
+	DelURL user url → modifyMVar db $ \t →
+		return (M.alter (Just∘delUrl url) user t, Ok)
 
-textPlain ∷ [(CI BS.ByteString, BS.ByteString)]
-textPlain = [("Content-Type", "text/plain")]
-textHtml ∷ [(CI BS.ByteString, BS.ByteString)]
-textHtml = [("Content-Type", "text/html")]
-ctyJs ∷ [(CI BS.ByteString, BS.ByteString)]
-ctyJs = [("Content-Type", "application/javascript")]
 
-sendCaptions ∷ Warp.Response
-sendCaptions = Warp.responseFile status200 textPlain "./captions" Nothing
+-- [[HTTP Requests and Responses]]
+json = [("Content-Type", "application/javascript")]∷W.RequestHeaders
 
-ls ∷ String → IO [String]
-ls path = Dir.getDirectoryContents path >>= return∘(filter $ not∘all(=='.'))
+reqContentType ∷ W.Request → Maybe Text
+reqContentType = fmap T.decodeUtf8 ∘ lookup "content-type" ∘ W.requestHeaders
+
+urlFromQuery ∷ ByteString → URL
+urlFromQuery q = T.decodeUtf8 q -- TODO Actually extract the url from the query.
+
+decRequest ∷ W.Request → Maybe Req
+decRequest r =
+	case (W.pathInfo r, W.requestMethod r, W.rawQueryString r) of
+		([user],"GET","") → Just $ GetURLs user
+		([user],"POST",q) → Just $ AddURL user $ urlFromQuery q
+		([user,url],"DELETE","") → Just $ DelURL user url
+		_ → Nothing
+
+encResponse ∷ Maybe Resp → W.Response
+encResponse Nothing = W.responseLBS W.status404 [] ""
+encResponse (Just Ok) = W.responseLBS W.status204 [] ""
+encResponse (Just (Urls us)) = W.responseLBS W.status200 json $ J.encode us
+
+app ∷ MVar DB → W.Request → IO W.Response
+app db webreq = do
+	let req = decRequest webreq
+	resp ← case req of
+		Nothing → return Nothing
+		Just r → respond db r >>= return∘Just
+	return $ encResponse resp
 
 main ∷ IO()
 main = do
-	dirList ← Dir.getDirectoryContents "./pics"
-	let clientJSStr = clientJS$ filter (not∘all(=='.')) $ dirList
-	let indexHtml = client
-	let route path = case path of
-		[]            → Warp.responseLBS status200 textHtml$fromString indexHtml
-		["UI.js"]     → Warp.responseLBS status200 ctyJs$fromString clientJSStr
-		["captions"]  → sendCaptions
-		[file]        → sendFile $ "./" ++ file
-		["pics",file] → sendFile $ "./pics/" ++ file
-		_             → Warp.responseLBS status404 [] ""
-	run 5003 $ return ∘ route ∘ map Text.unpack ∘ Warp.pathInfo
-
-jsList ∷ [String] → String
-jsList strs = "[" ++ elements ++ "]" where
-	elements = concat $ intersperse "," $ map (\s → "\"" ++ s ++ "\"") $ strs
-
-fuckyesod ∷ JavascriptUrl () -> Javascript
-fuckyesod jsu = jsu (\a b → "")
-
-clientJS ∷ [String] → String
-clientJS picUrls = LText.unpack wtf where
-	wtf = renderJavascript j
-	j ∷ Javascript
-	j = fuckyesod [js|
- var lines = function(str) {
-  var r = str.split("\n");
-  if ((r[r.length-1]).length == 0) { r.pop(); }
-  return r; };
- var shuffle = function (o) {
-  for (var j, x, i = o.length ; i;) {
-    j=Math.floor(Math.random() * i);
-   x=o[--i]; o[i]=o[j]; o[j]=x; }
-  return o; };
- picList = shuffle(#{rawJS(jsList picUrls)})
- for (var i in picList) { console.log(picList[i]); }
- var i = 0;
- var setupKeys = null;
- var next = null;
- var slideshow = false;
- next = function(diff) {
-  i = i + diff;
-  if (picList.length==0) return;
-  if (i >= picList.length) { i=0; }
-  if (i < 0) { i=picList.length-1; }
-  var imgNode = document.getElementById("theimg");
-  imgNode.src= "/pics/" + picList[i];
-  setupKeys(); };
- setupKeys = function() {
-  document.getElementById("theimg").onclick = (function(event) { next(1); })
-  document.onkeypress = (function(event) {
-   if (event.which == 0) return;
-   char = String.fromCharCode(event.which);
-   switch (char) {
-    case 'l': case 'L': next(1); break;
-    case 'h': case 'H': next(-1); break;
-    case ' ': if (slideshow) {slideshow=false;} else {slideshow=true;};
-    defeault: break; };});};
- next(0);
- window.setInterval(function(){ if (slideshow) { next(1); }}, 5000);
- |]
-
-client ∷ String
-client = renderHtml [shamlet|
-$doctype 5
-<html>
- <head>
-  <style>
-   img {
-   max-width: 100%;
-    height: 100%;
-    position: fixed;
-    left: 0; }
-    top: 0; }
- <body>
-  <p><img id="theimg"></img>
-  <script src="/UI.js">
-|]
+	db ← newMVar(M.empty∷DB)
+	W.run 5003 $ app db
