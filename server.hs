@@ -11,6 +11,7 @@
 
 import Prelude.Unicode
 import Data.Acid
+import Control.Exception (finally)
 import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
 import Data.SafeCopy
@@ -107,4 +108,6 @@ app db webreq = do
     return $ encResponse resp
 
 main ∷ IO()
-main = openLocalState (Data M.empty) >>= W.run 5005 ∘ app
+main = do
+	db ← openLocalState (Data M.empty)
+	finally (W.run 5005 $ app db) (createCheckpoint db)
