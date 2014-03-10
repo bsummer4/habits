@@ -50,21 +50,21 @@ getURLs user (Data d) = fromMaybe [] $ M.lookup user d
 -- [[Database]]
 type DB = AcidState Data
 
-writeData ∷ Data -> Update Data ()
-writeData (Data db) = put (Data db)
+delURL_ ∷ User → URL → Update Data ()
+delURL_ user url = liftQuery ask >>= put ∘ delURL user url
+
+addURL_ ∷ User → URL → Update Data ()
+addURL_ user url = liftQuery ask >>= put ∘ addURL user url
 
 queryData ∷ Query Data Data
 queryData = ask
 
 $(deriveSafeCopy 0 'base ''Data)
-$(makeAcidic ''Data ['writeData, 'queryData])
--- ‘makeAcidicُ’ creates the event constructors ‘QueryData’ and ‘WriteData.’
+$(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_])
+-- ‘makeAcidicُ’ creates the event constructors: QueryData DelURL_ AddURL_
 
 getData ∷ DB -> IO Data
 getData db = query db QueryData
-
-modifyData ∷ DB -> (Data -> Data) -> IO()
-modifyData db f = getData db >>= (update db∘WriteData∘f) >> return()
 
 
 -- [[Application Logic]]
@@ -77,9 +77,9 @@ data Req = InvalidReq | AddURL User URL | DelURL User URL | GetURLs User
 respond ∷ DB → Req → IO Resp
 respond db req = case req of
     InvalidReq → return NotOk
-    AddURL user url → modifyData db (addURL user url) >> return Ok
+    AddURL user url → update db (AddURL_ user url) >> return Ok
     GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
-    DelURL user url → modifyData db (delURL user url) >> return Ok
+    DelURL user url → update db (DelURL_ user url) >> return Ok
 
 
 -- [[HTTP Requests and Responses]]
