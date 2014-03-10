@@ -1,16 +1,16 @@
--- TODO Complain about attempts to delete non-existant urls.
+-- TODO Write a simple client.
+-- TODO Add support for registration, and auth using HTTP Basic Authentication.
 -- TODO Better Response Codes
 --   200 OK, 201 Created, 204 No Content
 --   400 Bad Request, 404 Not Found, 403 Forbidden, 401 Unauthorized
--- TODO Support PUT requests on a user to set the URL list with a JSON array.
--- TODO Write a simple client.
--- TODO Add support for registration, and auth using HTTP Basic Authentication.
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 
 import Prelude.Unicode
 import Data.Acid
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Control.Exception (finally)
 import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
@@ -40,21 +40,21 @@ decodeURIComponent = T.pack ∘ URI.unEscapeString ∘ T.unpack
 -- [[Data]]
 type URL = Text
 type User = Text
-data Data = Data(Map User [URL]) deriving (Show, Typeable)
+data Data = Data(Map User (Set URL)) deriving (Show, Typeable)
 
 delURL ∷ User → URL → Data → Data
 delURL user url (Data d) = Data(M.alter f user d) where
-    f row = Just $ filter (/= url) $ fromMaybe [] row
+    f row = Just $ Set.delete url $ fromMaybe Set.empty row
 
 addURL ∷ User → URL → Data → Data
 addURL user url (Data d) = Data(M.alter (Just∘f) user d) where
-    f row = case row of {Nothing→[url]; (Just urls)→url:urls}
+    f row = Set.insert url $ fromMaybe Set.empty row
 
-setURLs ∷ User → [URL] → Data → Data
+setURLs ∷ User → Set URL → Data → Data
 setURLs user urls (Data d) = Data $ M.insert user urls d
 
-getURLs ∷ User → Data → [URL]
-getURLs user (Data d) = fromMaybe [] $ M.lookup user d
+getURLs ∷ User → Data → Set URL
+getURLs user (Data d) = fromMaybe Set.empty $ M.lookup user d
 
 
 -- [[Database]]
@@ -66,13 +66,13 @@ delURL_ user url = liftQuery ask >>= put ∘ delURL user url
 addURL_ ∷ User → URL → Update Data ()
 addURL_ user url = liftQuery ask >>= put ∘ addURL user url
 
-setURLs_ ∷ User → [URL] → Update Data ()
+setURLs_ ∷ User → Set URL → Update Data ()
 setURLs_ user urls = liftQuery ask >>= put ∘ setURLs user urls
 
 queryData ∷ Query Data Data
 queryData = ask
 
-$(deriveSafeCopy 0 'base ''Data)
+$(deriveSafeCopy 1 'base ''Data)
 $(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
 -- ‘makeAcidicُ’ creates the event constructors:
     -- QueryData DelURL_ AddURL_ SetURLs_
@@ -82,12 +82,12 @@ getData db = query db QueryData
 
 
 -- [[Application Logic]]
-data Resp = NotOk | Ok | URLs [URL]
+data Resp = NotOk | Ok | URLs (Set URL)
     deriving Show
 
 data Req
     = InvalidReq
-    | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User [URL]
+    | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User (Set URL)
         deriving Show
 
 respond ∷ DB → Req → IO Resp
@@ -111,16 +111,17 @@ decRequest r = do
         (["api", "users",user, "urls"], "PUT", []) →
             fromMaybe InvalidReq $ fmap (SetURLs user) $ J.decode body
         (["api", "users",user, "urls"], "DELETE", []) →
-            SetURLs user []
+            SetURLs user Set.empty
         (["api", "users",user, "urls",url], "DELETE", []) →
             DelURL user url
         _ → InvalidReq
 
 encResponse ∷ Resp → W.Response
-encResponse NotOk = W.responseLBS W.status404 [] ""
-encResponse Ok = W.responseLBS W.status204 [] ""
-encResponse (URLs urls) = (W.responseLBS W.status200 json $ J.encode urls) where
-    json = [("Content-Type", "application/javascript")]
+encResponse repo = case resp of
+    NotOk → W.responseLBS W.status404 [] ""
+    Ok → W.responseLBS W.status204 [] ""
+    (URLs urls) → (W.responseLBS W.status200 json $ J.encode urls) where
+        json = [("Content-Type", "application/javascript")]
 
 app ∷ DB → W.Request → IO W.Response
 app db webreq = do
