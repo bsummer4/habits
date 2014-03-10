@@ -8,16 +8,14 @@
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 import Prelude.Unicode
-import Control.Concurrent.MVar
 import Data.Acid
-import Control.Monad.State
-import Control.Monad.Reader
+import Control.Monad.State (put)
+import Control.Monad.Reader (ask)
 import Data.SafeCopy
 import Data.Typeable
-import Data.Maybe
+import Data.Maybe (fromMaybe)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.ByteString (ByteString)
@@ -39,11 +37,11 @@ data Data = Data(Map User [URL]) deriving (Show, Typeable)
 
 delURL ∷ User → URL → Data → Data
 delURL user url (Data d) = Data(M.alter f user d) where
-	f row = Just $ filter (/= url) $ fromMaybe [] row
+    f row = Just $ filter (/= url) $ fromMaybe [] row
 
 addURL ∷ User → URL → Data → Data
 addURL user url (Data d) = Data(M.alter (Just∘f) user d) where
-	f row = case row of {Nothing→[url]; (Just urls)→url:urls}
+    f row = case row of {Nothing→[url]; (Just urls)→url:urls}
 
 getURLs ∷ User → Data → [URL]
 getURLs user (Data d) = fromMaybe [] $ M.lookup user d
@@ -60,7 +58,7 @@ queryData = ask
 
 $(deriveSafeCopy 0 'base ''Data)
 $(makeAcidic ''Data ['writeData, 'queryData])
--- ‘makeAcidicُ’ creates the constructors ‘QueryData’ and ‘WriteData.’
+-- ‘makeAcidicُ’ creates the event constructors ‘QueryData’ and ‘WriteData.’
 
 getData ∷ DB -> IO Data
 getData db = query db QueryData
@@ -70,46 +68,43 @@ modifyData db f = getData db >>= (update db∘WriteData∘f) >> return()
 
 
 -- [[Application Logic]]
-data Req = AddURL User URL | DelURL User URL | GetURLs User
-data Resp = Ok | URLs [URL]
+data Resp = NotOk | Ok | URLs [URL]
+    deriving Show
+
+data Req = InvalidReq | AddURL User URL | DelURL User URL | GetURLs User
+    deriving Show
 
 respond ∷ DB → Req → IO Resp
 respond db req = case req of
-	AddURL user url → modifyData db (addURL user url) >> return Ok
-	GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
-	DelURL user url → modifyData db (delURL user url) >> return Ok
+    InvalidReq → return NotOk
+    AddURL user url → modifyData db (addURL user url) >> return Ok
+    GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
+    DelURL user url → modifyData db (delURL user url) >> return Ok
 
 
 -- [[HTTP Requests and Responses]]
-json = [("Content-Type", "application/javascript")]∷W.RequestHeaders
-
-reqContentType ∷ W.Request → Maybe Text
-reqContentType = fmap T.decodeUtf8 ∘ lookup "content-type" ∘ W.requestHeaders
-
-decRequest ∷ W.Request → Maybe Req
+decRequest ∷ W.Request → Req
 decRequest r =
-	case (W.pathInfo r, W.requestMethod r, W.queryString r) of
-		(["api", user], "GET", []) → Just $ GetURLs user
-		(["api",user], "POST", [("url",Just url)]) →
-			Just $ AddURL user $ T.decodeUtf8 url
-		(["api",user,url], "DELETE", []) → Just $ DelURL user url
-		_ → Nothing
+    case (W.pathInfo r, W.requestMethod r, W.queryString r) of
+        (["api", user], "GET", []) → GetURLs user
+        (["api",user], "POST", [("url",Just u)]) → AddURL user $ T.decodeUtf8 u
+        (["api",user,url], "DELETE", []) → DelURL user url
+        _ → InvalidReq
 
-encResponse ∷ Maybe Resp → W.Response
-encResponse Nothing = W.responseLBS W.status404 [] ""
-encResponse (Just Ok) = W.responseLBS W.status204 [] ""
-encResponse (Just (URLs us)) = W.responseLBS W.status200 json $ J.encode us
+encResponse ∷ Resp → W.Response
+encResponse NotOk = W.responseLBS W.status404 [] ""
+encResponse Ok = W.responseLBS W.status204 [] ""
+encResponse (URLs urls) = (W.responseLBS W.status200 json $ J.encode urls) where
+    json = [("Content-Type", "application/javascript")]
 
 app ∷ DB → W.Request → IO W.Response
 app db webreq = do
-	getData db >>= putStrLn∘("STATE: "++)∘show
-	let req = decRequest webreq
-	resp ← case req of
-		Nothing → return Nothing
-		Just r → respond db r >>= return∘Just
-	return $ encResponse resp
+    let req = decRequest webreq
+    putStrLn(show req)
+    resp ← respond db req
+    putStrLn(show resp)
+    getData db >>= putStrLn ∘ show
+    return $ encResponse resp
 
 main ∷ IO()
-main = do
-	db ← openLocalState (Data M.empty)
-	W.run 5005 $ app (db∷DB)
+main = openLocalState (Data M.empty) >>= W.run 5005 ∘ app
