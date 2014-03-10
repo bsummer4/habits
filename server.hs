@@ -3,8 +3,8 @@
 --   200 OK, 201 Created, 204 No Content
 --   400 Bad Request, 404 Not Found, 403 Forbidden, 401 Unauthorized
 -- TODO Support PUT requests on a user to set the URL list with a JSON array.
--- TODO Actually parse out the '?url=URL' query on POST requests.
 -- TODO Write a simple client.
+-- TODO Add support for registration, and auth using HTTP Basic Authentication.
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
@@ -86,15 +86,13 @@ json = [("Content-Type", "application/javascript")]∷W.RequestHeaders
 reqContentType ∷ W.Request → Maybe Text
 reqContentType = fmap T.decodeUtf8 ∘ lookup "content-type" ∘ W.requestHeaders
 
-urlFromQuery ∷ ByteString → URL
-urlFromQuery q = T.decodeUtf8 q
-
 decRequest ∷ W.Request → Maybe Req
 decRequest r =
-	case (W.pathInfo r, W.requestMethod r, W.rawQueryString r) of
-		([user],"GET","") → Just $ GetURLs user
-		([user],"POST",q) → Just $ AddURL user $ urlFromQuery q
-		([user,url],"DELETE","") → Just $ DelURL user url
+	case (W.pathInfo r, W.requestMethod r, W.queryString r) of
+		(["api", user], "GET", []) → Just $ GetURLs user
+		(["api",user], "POST", [("url",Just url)]) →
+			Just $ AddURL user $ T.decodeUtf8 url
+		(["api",user,url], "DELETE", []) → Just $ DelURL user url
 		_ → Nothing
 
 encResponse ∷ Maybe Resp → W.Response
