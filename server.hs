@@ -1,4 +1,3 @@
--- TODO Write a simple client.
 -- TODO Add support for registration, and auth using HTTP Basic Authentication.
 -- TODO Better Response Codes
 --   200 OK, 201 Created, 204 No Content
@@ -82,46 +81,49 @@ getData db = query db QueryData
 
 
 -- [[Application Logic]]
-data Resp = NotOk | Ok | URLs (Set URL)
+data Resp = NotOk | Ok | URLs (Set URL) | ServeClient
     deriving Show
 
 data Req
-    = InvalidReq
+    = BadReq
+    | WebClient
     | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User (Set URL)
-        deriving Show
+    deriving Show
 
 respond ∷ DB → Req → IO Resp
 respond db req = case req of
-    InvalidReq → return NotOk
+    BadReq → return NotOk
     AddURL user url → update db (AddURL_ user url) >> return Ok
     GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
     DelURL user url → update db (DelURL_ user url) >> return Ok
     SetURLs user urls → update db (SetURLs_ user urls) >> return Ok
+    WebClient → return ServeClient
 
 
 -- [[HTTP Requests and Responses]]
 decRequest ∷ W.Request → IO Req
 decRequest r = do
     body ← W.lazyRequestBody r
+    let putURL user encUrl = AddURL user $ decodeURIComponent encUrl
+    let putURLs user = fromMaybe BadReq $ fmap (SetURLs user) $ J.decode body
     return $ case (W.pathInfo r, W.requestMethod r, W.queryString r) of
-        (["api", "users",user, "urls",url], "PUT", []) →
-            AddURL user $ decodeURIComponent $ url
-        (["api", "users",user, "urls"], "GET", []) →
-            GetURLs user
-        (["api", "users",user, "urls"], "PUT", []) →
-            fromMaybe InvalidReq $ fmap (SetURLs user) $ J.decode body
-        (["api", "users",user, "urls"], "DELETE", []) →
-            SetURLs user Set.empty
-        (["api", "users",user, "urls",url], "DELETE", []) →
-            DelURL user url
-        _ → InvalidReq
+        ([], "GET", []) → WebClient
+        (["index.html"], "GET", []) → WebClient
+        (["api", "users",user, "urls",url], "PUT", []) → putURL user url
+        (["api", "users",user, "urls"], "GET", []) → GetURLs user
+        (["api", "users",user, "urls"], "PUT", []) → putURLs user
+        (["api", "users",user, "urls"], "DELETE", []) → SetURLs user Set.empty
+        (["api", "users",user, "urls",url], "DELETE", []) → DelURL user url
+        _ → BadReq
 
 encResponse ∷ Resp → W.Response
-encResponse repo = case resp of
-    NotOk → W.responseLBS W.status404 [] ""
-    Ok → W.responseLBS W.status204 [] ""
-    (URLs urls) → (W.responseLBS W.status200 json $ J.encode urls) where
-        json = [("Content-Type", "application/javascript")]
+encResponse resp = r resp where
+    r NotOk = W.responseLBS W.status404 [] ""
+    r Ok = W.responseLBS W.status204 [] ""
+    r ServeClient = W.responseFile W.status200 html "./index.html" Nothing where
+    r (URLs urls) = (W.responseLBS W.status200 json $ J.encode urls) where
+    html = [("Content-Type", "text/html")]
+    json = [("Content-Type", "application/javascript")]
 
 app ∷ DB → W.Request → IO W.Response
 app db webreq = do
