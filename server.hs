@@ -14,8 +14,10 @@ import Data.Acid
 import Control.Exception (finally)
 import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
+import qualified Network.URI as URI
 import Data.SafeCopy
 import Data.Typeable
+import Data.String (fromString)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -31,6 +33,10 @@ import qualified Network.Wai.Handler.Warp as W
 import qualified Data.Aeson as J
 
 
+-- [[URL Encoding]]
+decodeURIComponent = T.pack ∘ URI.unEscapeString ∘ T.unpack
+
+
 -- [[Data]]
 type URL = Text
 type User = Text
@@ -43,6 +49,9 @@ delURL user url (Data d) = Data(M.alter f user d) where
 addURL ∷ User → URL → Data → Data
 addURL user url (Data d) = Data(M.alter (Just∘f) user d) where
     f row = case row of {Nothing→[url]; (Just urls)→url:urls}
+
+setURLs ∷ User → [URL] → Data → Data
+setURLs user urls (Data d) = Data $ M.insert user urls d
 
 getURLs ∷ User → Data → [URL]
 getURLs user (Data d) = fromMaybe [] $ M.lookup user d
@@ -57,12 +66,16 @@ delURL_ user url = liftQuery ask >>= put ∘ delURL user url
 addURL_ ∷ User → URL → Update Data ()
 addURL_ user url = liftQuery ask >>= put ∘ addURL user url
 
+setURLs_ ∷ User → [URL] → Update Data ()
+setURLs_ user urls = liftQuery ask >>= put ∘ setURLs user urls
+
 queryData ∷ Query Data Data
 queryData = ask
 
 $(deriveSafeCopy 0 'base ''Data)
-$(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_])
--- ‘makeAcidicُ’ creates the event constructors: QueryData DelURL_ AddURL_
+$(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
+-- ‘makeAcidicُ’ creates the event constructors:
+    -- QueryData DelURL_ AddURL_ SetURLs_
 
 getData ∷ DB -> IO Data
 getData db = query db QueryData
@@ -72,8 +85,10 @@ getData db = query db QueryData
 data Resp = NotOk | Ok | URLs [URL]
     deriving Show
 
-data Req = InvalidReq | AddURL User URL | DelURL User URL | GetURLs User
-    deriving Show
+data Req
+    = InvalidReq
+    | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User [URL]
+        deriving Show
 
 respond ∷ DB → Req → IO Resp
 respond db req = case req of
@@ -81,15 +96,24 @@ respond db req = case req of
     AddURL user url → update db (AddURL_ user url) >> return Ok
     GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
     DelURL user url → update db (DelURL_ user url) >> return Ok
+    SetURLs user urls → update db (SetURLs_ user urls) >> return Ok
 
 
 -- [[HTTP Requests and Responses]]
-decRequest ∷ W.Request → Req
-decRequest r =
-    case (W.pathInfo r, W.requestMethod r, W.queryString r) of
-        (["api", user], "GET", []) → GetURLs user
-        (["api",user], "POST", [("url",Just u)]) → AddURL user $ T.decodeUtf8 u
-        (["api",user,url], "DELETE", []) → DelURL user url
+decRequest ∷ W.Request → IO Req
+decRequest r = do
+    body ← W.lazyRequestBody r
+    return $ case (W.pathInfo r, W.requestMethod r, W.queryString r) of
+        (["api", "users",user, "urls",url], "PUT", []) →
+            AddURL user $ decodeURIComponent $ url
+        (["api", "users",user, "urls"], "GET", []) →
+            GetURLs user
+        (["api", "users",user, "urls"], "PUT", []) →
+            fromMaybe InvalidReq $ fmap (SetURLs user) $ J.decode body
+        (["api", "users",user, "urls"], "DELETE", []) →
+            SetURLs user []
+        (["api", "users",user, "urls",url], "DELETE", []) →
+            DelURL user url
         _ → InvalidReq
 
 encResponse ∷ Resp → W.Response
@@ -100,14 +124,16 @@ encResponse (URLs urls) = (W.responseLBS W.status200 json $ J.encode urls) where
 
 app ∷ DB → W.Request → IO W.Response
 app db webreq = do
-    let req = decRequest webreq
+    req ← decRequest webreq
+    putStrLn "=========="
     putStrLn(show req)
     resp ← respond db req
     putStrLn(show resp)
-    getData db >>= putStrLn ∘ show
     return $ encResponse resp
 
 main ∷ IO()
 main = do
-	db ← openLocalState (Data M.empty)
-	finally (W.run 5005 $ app db) (createCheckpoint db)
+    db ← openLocalState (Data M.empty)
+    finally (W.run 8080 $ app db) $ do
+        createCheckpoint db
+        closeAcidState db
