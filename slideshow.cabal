@@ -10,4 +10,5 @@ executable slideshow
     main-is: Server.hs
     build-depends:
         base, bytestring, clientsession, aeson, warp, wai, http-types, text,
-        containers, safecopy, network, mtl, acid-state, base-unicode-symbols
+        containers, safecopy, network, mtl, acid-state, base-unicode-symbols,
+        classy-prelude

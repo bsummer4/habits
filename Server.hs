@@ -12,59 +12,37 @@
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
+import ClassyPrelude
 import Prelude.Unicode
-import Data.Acid
-import Data.Set (Set)
-import Data.Word
 import qualified Data.Set as Set
-import Control.Exception (finally)
-import Control.Monad.State (put)
-import Control.Monad.Reader (ask)
 import qualified Network.URI as URI
-import Data.SafeCopy
-import Data.Typeable
-import Data.String (fromString)
-import Data.Maybe (fromMaybe)
-import Data.Map (Map)
 import qualified Data.Map as M
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Text.Encoding as T
 import qualified Network.HTTP.Types as W
-import qualified Network.HTTP.Types.Status as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import qualified Data.Aeson as J
 import qualified Web.ClientSession as Session
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.Acid
+import Control.Monad.State (put)
+import Control.Monad.Reader (ask)
+import Data.SafeCopy
 
 
 -- [[Misc]]
-toLazy ∷ BS.ByteString → LBS.ByteString
-toLazy s = LBS.fromChunks [s]
-
-unLazy ∷ LBS.ByteString → BS.ByteString
-unLazy = BS.concat ∘ LBS.toChunks
-
-unsafeToken ∷ (User, Password, Date) → BS.ByteString
-unsafeToken (u,p,d) = unLazy $ J.encode (u,p,d)
-
 fromUnsafeToken ∷ BS.ByteString → Maybe (User, Password, Date)
-fromUnsafeToken tok = J.decode $ toLazy tok
+fromUnsafeToken tok = J.decode $ LBS.fromChunks [tok]
 
 mkToken ∷ Session.Key → Session.IV → (User, Password, Date) → Text
-mkToken key iv upd = T.decodeUtf8 $ Session.encrypt key iv $ unsafeToken upd
+mkToken key iv (u,p,d) = decodeUtf8 $ Session.encrypt key iv $ rawtok where
+    rawtok = BS.concat $ LBS.toChunks $ J.encode (u,p,d)
 
 decToken ∷ Session.Key → BS.ByteString → Maybe (User, Password, Date)
-decToken key tok = case Session.decrypt key tok of
-    Nothing → Nothing
-    Just x → fromUnsafeToken x
-
-decodeURIComponent ∷ Text → Text
-decodeURIComponent = T.pack ∘ URI.unEscapeString ∘ T.unpack
+decToken key tok = join $ fmap fromRawTok $ Session.decrypt key tok where
+    fromRawTok rawtok = J.decode $ LBS.fromChunks [rawtok]
 
 
 -- [[Data]]
@@ -105,7 +83,7 @@ queryData = ask
 $(deriveSafeCopy 1 'base ''Data)
 $(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
 
-getData ∷ AcidState Data -> IO Data
+getData ∷ AcidState Data → IO Data
 getData db = query db QueryData
 
 
@@ -130,6 +108,9 @@ respond db req = case req of
 
 
 -- [[HTTP Requests and Responses]]
+decodeURIComponent ∷ Text → Text
+decodeURIComponent = pack ∘ URI.unEscapeString ∘ unpack
+
 decRequest ∷ W.Request → IO Req
 decRequest r = do
     body ← W.lazyRequestBody r
@@ -158,9 +139,9 @@ app ∷ AcidState Data → W.Request → IO W.Response
 app db webreq = do
     req ← decRequest webreq
     putStrLn "=========="
-    putStrLn(show req)
+    putStrLn $ pack $ show req
     resp ← respond db req
-    putStrLn(show resp)
+    putStrLn $ pack $ show resp
     return $ encResponse resp
 
 main ∷ IO()
