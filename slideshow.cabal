@@ -11,4 +11,4 @@ executable slideshow
     build-depends:
         base, bytestring, clientsession, aeson, warp, wai, http-types, text,
         containers, safecopy, network, mtl, acid-state, base-unicode-symbols,
-        classy-prelude
+        classy-prelude, base64-bytestring
