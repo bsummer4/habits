@@ -1,7 +1,15 @@
--- TODO Add support for registration, and auth using HTTP Basic Authentication.
+-- TODO Write a cabal file and setup cabal-dev. Dependencies be getting cray.
+-- TODO Add an authentication endpoint, and support token-based authentication.
+-- TODO Add support for HTTP Basic Authentication.
+--     TODO Are there any libraries to handle this more easily?
+--     TODO Read about padding schemes.
+--     TODO Define sensible limits on username and password length.
+--         TODO Enforce them.
+--     TODO Come up with a sane way to handle passing in encryption keys at
+--         run time or compile time.
 -- TODO Better Response Codes
---   200 OK, 201 Created, 204 No Content
---   400 Bad Request, 404 Not Found, 403 Forbidden, 401 Unauthorized
+--     200 OK, 201 Created, 204 No Content
+--     400 Bad Request, 404 Not Found, 403 Forbidden, 401 Unauthorized
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
@@ -9,6 +17,7 @@
 import Prelude.Unicode
 import Data.Acid
 import Data.Set (Set)
+import Data.Word
 import qualified Data.Set as Set
 import Control.Exception (finally)
 import Control.Monad.State (put)
@@ -20,7 +29,6 @@ import Data.String (fromString)
 import Data.Maybe (fromMaybe)
 import Data.Map (Map)
 import qualified Data.Map as M
-import Data.ByteString (ByteString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -30,15 +38,41 @@ import qualified Network.HTTP.Types.Status as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import qualified Data.Aeson as J
+import qualified Web.ClientSession as Session
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 
 
--- [[URL Encoding]]
+-- [[Misc]]
+toLazy ∷ BS.ByteString → LBS.ByteString
+toLazy s = LBS.fromChunks [s]
+
+unLazy ∷ LBS.ByteString → BS.ByteString
+unLazy = BS.concat ∘ LBS.toChunks
+
+unsafeToken ∷ (User, Password, Date) → BS.ByteString
+unsafeToken (u,p,d) = unLazy $ J.encode (u,p,d)
+
+fromUnsafeToken ∷ BS.ByteString → Maybe (User, Password, Date)
+fromUnsafeToken tok = J.decode $ toLazy tok
+
+mkToken ∷ Session.Key → Session.IV → (User, Password, Date) → Text
+mkToken key iv upd = T.decodeUtf8 $ Session.encrypt key iv $ unsafeToken upd
+
+decToken ∷ Session.Key → BS.ByteString → Maybe (User, Password, Date)
+decToken key tok = case Session.decrypt key tok of
+    Nothing → Nothing
+    Just x → fromUnsafeToken x
+
+decodeURIComponent ∷ Text → Text
 decodeURIComponent = T.pack ∘ URI.unEscapeString ∘ T.unpack
 
 
 -- [[Data]]
+type Date = Word64
 type URL = Text
 type User = Text
+type Password = Text
 data Data = Data(Map User (Set URL)) deriving (Show, Typeable)
 
 delURL ∷ User → URL → Data → Data
@@ -57,8 +91,6 @@ getURLs user (Data d) = fromMaybe Set.empty $ M.lookup user d
 
 
 -- [[Database]]
-type DB = AcidState Data
-
 delURL_ ∷ User → URL → Update Data ()
 delURL_ user url = liftQuery ask >>= put ∘ delURL user url
 
@@ -73,10 +105,8 @@ queryData = ask
 
 $(deriveSafeCopy 1 'base ''Data)
 $(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
--- ‘makeAcidicُ’ creates the event constructors:
-    -- QueryData DelURL_ AddURL_ SetURLs_
 
-getData ∷ DB -> IO Data
+getData ∷ AcidState Data -> IO Data
 getData db = query db QueryData
 
 
@@ -90,7 +120,7 @@ data Req
     | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User (Set URL)
     deriving Show
 
-respond ∷ DB → Req → IO Resp
+respond ∷ AcidState Data → Req → IO Resp
 respond db req = case req of
     BadReq → return NotOk
     AddURL user url → update db (AddURL_ user url) >> return Ok
@@ -125,7 +155,7 @@ encResponse resp = r resp where
     html = [("Content-Type", "text/html")]
     json = [("Content-Type", "application/javascript")]
 
-app ∷ DB → W.Request → IO W.Response
+app ∷ AcidState Data → W.Request → IO W.Response
 app db webreq = do
     req ← decRequest webreq
     putStrLn "=========="
