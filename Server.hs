@@ -1,9 +1,9 @@
+-- TODO Add support for registrations.
+-- TODO Implement authorization.
 -- TODO Add an authentication endpoint, and support token-based authentication.
 -- TODO Get encryption keys from environment variables.
--- TODO Propefly hash the passwords, and don't store them as plaintext.
--- TODO Define and enforce sensible restrictions on username and password.
---     Usernames in HTTP cannot contain a colon.
---     Length restrictions?
+-- TODO Properly hash the passwords, and don't store them as plaintext.
+-- TODO What's the correct HTTP error code for a rejected authentication?
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
@@ -30,7 +30,7 @@ import qualified Data.ByteString.Base64 as Base64
 
 
 -- [[Authentication Stuff]]
-data AuthParse = Anon | Malformed | AuthAttempt{realm∷Text,uname∷Text,pass∷Text}
+data AuthParse = Anon | Malformed | AuthAttempt Text User Password
 type Registrations = Map User Password
 
 userPassFromBasicAuthString ∷ Text → Maybe (Text,Text)
@@ -60,7 +60,9 @@ authAttempt ∷ W.Request → AuthParse
 authAttempt req = f where
     hdrs = W.requestHeaders req
     parse a b = case (parseWWWAuthenticate a, parseAuthorization b) of
-        (Just aRealm, Just(u,p)) → AuthAttempt aRealm u p
+        (Just aRealm, Just(uname,p)) → case userFromName uname of
+            Nothing → Malformed
+            Just u → AuthAttempt aRealm u p
         _ → Malformed
     f = case (lookup "WWW-Authenticate" hdrs, lookup "Authorization" hdrs) of
         (Nothing, Nothing) → Anon
@@ -68,7 +70,7 @@ authAttempt req = f where
         _ → Malformed
 
 authFailed ∷ IO W.Response
-authFailed = return $ W.responseLBS W.status403 [] ""  -- TODO Is this right?
+authFailed = return $ W.responseLBS W.status403 [] ""
 
 -- This rejects requests with invalid credentials. Any requests that pass
 -- through this filter will either have no credentials or correct credentials.
@@ -83,23 +85,24 @@ basicAuth users _ waiapp req = case authAttempt req of
 
 
 -- [[Misc]]
-fromUnsafeToken ∷ BS.ByteString → Maybe (User, Password, Date)
-fromUnsafeToken tok = J.decode $ LBS.fromChunks [tok]
-
 mkToken ∷ Session.Key → Session.IV → (User, Password, Date) → Text
 mkToken key iv (u,p,d) = decodeUtf8 $ Session.encrypt key iv $ rawtok where
-    rawtok = BS.concat $ LBS.toChunks $ J.encode (u,p,d)
+    rawtok = BS.concat $ LBS.toChunks $ J.encode (username u,p,d)
 
 decToken ∷ Session.Key → BS.ByteString → Maybe (User, Password, Date)
 decToken key tok = join $ fmap fromRawTok $ Session.decrypt key tok where
-    fromRawTok rawtok = J.decode $ LBS.fromChunks [rawtok]
+    fromRawTok rawtok = case J.decode $ LBS.fromChunks [rawtok] of
+        Nothing → Nothing
+        Just (uname,p,d) → case userFromName uname of
+            Nothing → Nothing
+            Just u → Just (u,p,d)
 
 
 -- [[Data]]
 type Date = Word64
 type URL = Text
-type User = Text
 type Password = Text
+newtype User = User Text deriving (Eq, Ord, Show, Typeable)
 data Data = Data(Map User (Set URL)) deriving (Show, Typeable)
 
 delURL ∷ User → URL → Data → Data
@@ -116,8 +119,25 @@ setURLs user urls (Data d) = Data $ M.insert user urls d
 getURLs ∷ User → Data → Set URL
 getURLs user (Data d) = fromMaybe Set.empty $ M.lookup user d
 
+validUsername ∷ Text → Bool
+validUsername t = lenOK && okCharset where
+    lenOK = length t≤50 && length t>0
+    (az,az09) = (['a'..'z']++['A'..'Z'], az++['0'..'9'])
+    okCharset = case T.uncons t of
+        Nothing → False
+        Just(h,tail) → h `elem` az && T.all (`elem` az09) tail
+
+username ∷ User → Text
+username (User name) = name
+
+userFromName ∷ Text → Maybe User
+userFromName t = if validUsername t then Just $ User t else Nothing
+
 
 -- [[Database]]
+$(deriveSafeCopy 0 'base ''User)
+$(deriveSafeCopy 2 'base ''Data)
+
 delURL_ ∷ User → URL → Update Data ()
 delURL_ user url = liftQuery ask >>= put ∘ delURL user url
 
@@ -130,7 +150,6 @@ setURLs_ user urls = liftQuery ask >>= put ∘ setURLs user urls
 queryData ∷ Query Data Data
 queryData = ask
 
-$(deriveSafeCopy 1 'base ''Data)
 $(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
 
 getData ∷ AcidState Data → IO Data
@@ -160,17 +179,19 @@ decodeURIComponent = pack ∘ URI.unEscapeString ∘ unpack
 
 decRequest ∷ W.Request → IO Req
 decRequest r = do
+    let notOK="This code assumes that usernames/passwords are valid and correct"
+    let usr uname = case userFromName uname of{Just u→u; Nothing→error notOK}
     body ← W.lazyRequestBody r
     let putURL user encUrl = AddURL user $ decodeURIComponent encUrl
     let putURLs user = fromMaybe BadReq $ fmap (SetURLs user) $ J.decode body
     return $ case (W.pathInfo r, W.requestMethod r, W.queryString r) of
-        ([], "GET", []) → WebClient
-        (["index.html"], "GET", []) → WebClient
-        (["api", "users",user, "urls",url], "PUT", []) → putURL user url
-        (["api", "users",user, "urls"], "GET", []) → GetURLs user
-        (["api", "users",user, "urls"], "PUT", []) → putURLs user
-        (["api", "users",user, "urls"], "DELETE", []) → SetURLs user Set.empty
-        (["api", "users",user, "urls",url], "DELETE", []) → DelURL user url
+        ([],"GET",[]) → WebClient
+        (["index.html"],"GET",[]) → WebClient
+        (["api","users",user,"urls",url],"PUT",[]) → putURL (usr user) url
+        (["api","users",user,"urls"],"GET",[]) → GetURLs (usr user)
+        (["api","users",user,"urls"],"PUT",[]) → putURLs (usr user)
+        (["api","users",user,"urls"],"DELETE",[]) → SetURLs (usr user) Set.empty
+        (["api","users",user,"urls",url],"DELETE",[]) → DelURL (usr user) url
         _ → BadReq
 
 encResponse ∷ Resp → W.Response
