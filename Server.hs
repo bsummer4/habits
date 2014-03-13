@@ -1,4 +1,3 @@
--- TODO Write a cabal file and setup cabal-dev. Dependencies be getting cray.
 -- TODO Add an authentication endpoint, and support token-based authentication.
 -- TODO Add support for HTTP Basic Authentication.
 --     TODO Are there any libraries to handle this more easily?
