@@ -1,96 +1,67 @@
-<html><head><style>
+<html><head></head><body>
 
-img {
-    max-width: 100%;
-    height: 100%;
-    position: fixed;
-    left: 0; }
-    top: 0; }
+<p><ul id="notices"></ul></p>
 
-
-</style></head><body>
-
-<p><img id="theimg"></img></p>
-
+<script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
 <script>
-var username = "stephen";
+// You still need to do $h, $i, $j, and $k today.
+// Yesterday, you fucked up on $h, $i, $j, and $k.
+// Gratz! You've been doing $h for $x days in a row!
+// Gratz! You've been doing $k for $y days in a row!
 
 var trace = function(x) { console.log(x); return x; }
-var i = 0;
-var setupKeys = null;
-var next = null;
-var slideshow = false;
 
-var lines = function(str) {
-    var r = str.split("\n");
-    if ((r[r.length-1]).length == 0) { r.pop(); }
-    return r; };
+// data Notice = {"failed",day,habit} | {"chain",habit,length}
 
-var shuffle = function (o) {
-    for (var j, x, i = o.length ; i;) {
-        j=Math.floor(Math.random() * i);
-        x=o[--i]; o[i]=o[j]; o[j]=x; }
-    return o; };
+var failureNotices = function(habits) {
+    console.log($.map(habits, function(n){return ["failed","today",n];}));
+    return $.map(habits, function(n){return [["failed","today",n]];}) }
 
-var DONE = 4;
+// getFailures ∷ () → ()
+var getFailures = function() {
+    $.ajax({
+        type: "GET",
+        url: "/api/failures/today"
+        }).done(function(habitsStr) {
+            var habits = JSON.parse(habitsStr);
+            console.log(habits);
+            console.log(habits[0]);
+            displayNotices(failureNotices(habits)); })}
 
-var picList =
-    ["http://www.wallpaper4me.com/images/wallpapers/hour_glass_loading_w1.jpeg"]
+// didIt ∷ {day,habit} → () → ()
+var didIt = function(day, habit) {
+    return function() {
+        $.ajax({
+            type: "PUT",
+            url: "/api/successes/" + day + "/" + habit,
+            success: function(d){getFailures($.getJSON(d)); }})}; }
 
-var recvPicList = function(xhr) { return (function() {
-    if (xhr.readyState!==DONE) return;
-    if (xhr.responseText===null) return;
-    picList = trace(shuffle(JSON.parse(xhr.responseText)));
-    next(1); })}
+// showNotice ∷ {Notice} → LI
+var showNotice = function(notice) {
+    var result = $("<li>")
+    console.log(notice);
+    switch (notice[0]) {
+        case "failed":
+            result.text("You failed at [" + notice[2] + "] today.");
+            result.click(didIt(notice[1], notice[2]))
+            return result;
+        case "chain":
+            result.text("You've been doing [" + notice[1] + (
+                "] for " + notice[2] + " days in a row!"))
+            return result
+        default:
+            throw("Invalid notice"); }}
 
-var getPicList = function() {
-    var r = new XMLHttpRequest();
-    reqUrl = "/api/users/" + username + "/urls"
-    r.onreadystatechange = recvPicList(r);
-    r.open("GET", reqUrl, true);
-    r.send(); }
+var displayNotices = function(notices) {
+    var LIs = $.map(notices, showNotice)
+    var node = $("#notices");
+    node.empty()
+    for (var i in LIs) { node.append(LIs[i]); }; }
 
-next = function(diff) {
-    i = i + diff;
-    if (picList.length==0) return;
-    if (i >= picList.length) { i=0; }
-    if (i < 0) { i=picList.length-1; }
-    var imgNode = document.getElementById("theimg");
-    imgNode.src = picList[i];
-    setupKeys(); };
+var ex = [["failed","today","curfew"], ["chain","breakfast",2]];
 
-pushUrl = function(url) {
-    reqUrl = "/api/users/" + username + "/urls/" + encodeURIComponent(url);
-    var r = new XMLHttpRequest();
-    // TODO Double check the conditions for this callback.
-    r.onreadystatechange = function() {
-        if (r.readyState===DONE) { getPicList(); }}
-    r.open("PUT", reqUrl, true);
-    r.send(); }
-
-addUrl = function() {
-    url = prompt("Enter the url of an image");
-    if (url === null) { return; }
-    var imgNode = document.getElementById("theimg");
-    imgNode.src = url;
-    picList = getPicList();
-    pushUrl(url); }
-
-setupKeys = function() {
-    document.getElementById("theimg").onclick = (function(event) { next(1); })
-    document.onkeypress = (function(event) {
-        if (event.which == 0) return;
-        char = String.fromCharCode(event.which);
-        switch (char) {
-            case 'l': case 'L': next(1); break;
-            case 'h': case 'H': next(-1); break;
-            case '+': addUrl();
-            case ' ': if (slideshow) {slideshow=false;} else {slideshow=true;};
-            defeault: break; };});};
-
-getPicList();
-next(0);
-window.setInterval(function(){ if (slideshow) { next(1); }}, 5000);
+// displayNotices(ex);
+getFailures();
 
 </script>
 </body>

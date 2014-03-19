@@ -1,9 +1,8 @@
--- TODO Add support for registrations.
--- TODO Implement authorization.
--- TODO Add an authentication endpoint, and support token-based authentication.
--- TODO Get encryption keys from environment variables.
--- TODO Properly hash the passwords, and don't store them as plaintext.
--- TODO What's the correct HTTP error code for a rejected authentication?
+-- Here's what the interface might look like:
+--     You still need to do $h, $i, $j, and $k today.
+--     Yesterday, you fucked up on $h, $i, $j, and $k.
+--     Gratz! You've been doing $h for $x days in a row!
+--     Gratz! You've been doing $k for $y days in a row!
 
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
@@ -11,199 +10,147 @@
 
 import ClassyPrelude
 import Prelude.Unicode
-import qualified Data.Set as Set
+import Data.Acid
+import Data.SafeCopy
+import Control.Monad.State (put)
+import Control.Monad.Reader (ask)
 import qualified Network.URI as URI
-import qualified Data.Map as M
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import qualified Data.Aeson as J
-import qualified Web.ClientSession as Session
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Text as T
-import Data.Acid
-import Control.Monad.State (put)
-import Control.Monad.Reader (ask)
-import Data.SafeCopy
-import qualified Data.ByteString.Base64 as Base64
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Data.List as List
+import qualified Data.Text as Text
+import qualified Data.Text.Read as Text
+-- import Data.Time.Clock
+import Data.Time.Calendar
 
 
--- [[Authentication Stuff]]
-data AuthParse = Anon | Malformed | AuthAttempt Text User Password
-type Registrations = Map User Password
+-- [[Habit Management]]
+type Habit = Text
+type History = Map Day (Set Habit)
+data State = State (Set Habit) History deriving Typeable
 
-userPassFromBasicAuthString ∷ Text → Maybe (Text,Text)
-userPassFromBasicAuthString s = case Base64.decode $ encodeUtf8 s of
-    Left _ → Nothing
-    Right pair → case T.breakOn ":" $ decodeUtf8 pair of
-        (_,"") → Nothing
-        (user,colonPass) → Just (user, T.tail colonPass)
+successes ∷ Day → History → Set Habit
+successes day hist = case Map.lookup day hist of {Nothing→Set.empty; Just s→s}
 
-unPrefix ∷ Text → Text → Maybe Text
-unPrefix prefix str = case T.splitAt (length prefix) str of
-    (strHead, strTail) → if strHead≠prefix then Nothing else Just strTail
+failures ∷ Day → State → Set Habit
+failures day (State habits hist) = habits `Set.difference` successes day hist
 
-parseAuthorization ∷ ByteString → Maybe (Text,Text)
-parseAuthorization =
-    join∘fmap userPassFromBasicAuthString∘unPrefix "Basic "∘decodeUtf8
+didIt ∷ (Day,Habit) → History → History
+didIt (day,habit) hist = Map.insert day daySuccesses hist where
+    daySuccesses = Set.insert habit $ successes day hist
 
-parseWWWAuthenticate ∷ ByteString → Maybe Text
-parseWWWAuthenticate s = case unPrefix "Basic realm=\"" $ decodeUtf8 s of
-    Nothing → Nothing
-    Just "" → Nothing
-    Just(shit∷Text) → case T.splitAt (length shit-1) shit of
-        (r,"\"") → Just r
-        _ → Nothing
+chains ∷ Day → History → Set Habit → [Set Habit]
+chains today hist soFar = if Set.null habits then [] else habits:yesterday where
+    yesterday = chains (addDays (-1) today) hist habits
+    habits = soFar `Set.intersection` (successes today hist)
 
-authAttempt ∷ W.Request → AuthParse
-authAttempt req = f where
-    hdrs = W.requestHeaders req
-    parse a b = case (parseWWWAuthenticate a, parseAuthorization b) of
-        (Just aRealm, Just(uname,p)) → case userFromName uname of
-            Nothing → Malformed
-            Just u → AuthAttempt aRealm u p
-        _ → Malformed
-    f = case (lookup "WWW-Authenticate" hdrs, lookup "Authorization" hdrs) of
-        (Nothing, Nothing) → Anon
-        (Just a, Just b) → parse a b
-        _ → Malformed
+incCounts ∷ Ord k ⇒ Set k → Map k Int → Map k Int
+incCounts keys init = Set.fold iter init keys where
+    iter k m = Map.alter addOne k m
+    addOne n = Just $ (1∷Int)+fromMaybe 0 n
 
-authFailed ∷ IO W.Response
-authFailed = return $ W.responseLBS W.status403 [] ""
+chainLengths ∷ [Set Habit] → Map Habit Int
+chainLengths = List.foldl (\acc hs → incCounts hs acc) Map.empty
 
--- This rejects requests with invalid credentials. Any requests that pass
--- through this filter will either have no credentials or correct credentials.
-basicAuth ∷ Registrations → AcidState Data → W.Application → W.Application
-basicAuth users _ waiapp req = case authAttempt req of
-    Anon → waiapp req
-    Malformed → authFailed
-    AuthAttempt _ u p → case M.lookup u users of
-        Nothing → authFailed
-        Just(password) → if password≡p then waiapp req else
-            return $ W.responseLBS W.status400 [] ""
-
-
--- [[Misc]]
-mkToken ∷ Session.Key → Session.IV → (User, Password, Date) → Text
-mkToken key iv (u,p,d) = decodeUtf8 $ Session.encrypt key iv $ rawtok where
-    rawtok = BS.concat $ LBS.toChunks $ J.encode (username u,p,d)
-
-decToken ∷ Session.Key → BS.ByteString → Maybe (User, Password, Date)
-decToken key tok = join $ fmap fromRawTok $ Session.decrypt key tok where
-    fromRawTok rawtok = case J.decode $ LBS.fromChunks [rawtok] of
-        Nothing → Nothing
-        Just (uname,p,d) → case userFromName uname of
-            Nothing → Nothing
-            Just u → Just (u,p,d)
-
-
--- [[Data]]
-type Date = Word64
-type URL = Text
-type Password = Text
-newtype User = User Text deriving (Eq, Ord, Show, Typeable)
-data Data = Data(Map User (Set URL)) deriving (Show, Typeable)
-
-delURL ∷ User → URL → Data → Data
-delURL user url (Data d) = Data(M.alter f user d) where
-    f row = Just $ Set.delete url $ fromMaybe Set.empty row
-
-addURL ∷ User → URL → Data → Data
-addURL user url (Data d) = Data(M.alter (Just∘f) user d) where
-    f row = Set.insert url $ fromMaybe Set.empty row
-
-setURLs ∷ User → Set URL → Data → Data
-setURLs user urls (Data d) = Data $ M.insert user urls d
-
-getURLs ∷ User → Data → Set URL
-getURLs user (Data d) = fromMaybe Set.empty $ M.lookup user d
-
-validUsername ∷ Text → Bool
-validUsername t = lenOK && okCharset where
-    lenOK = length t≤50 && length t>0
-    (az,az09) = (['a'..'z']++['A'..'Z'], az++['0'..'9'])
-    okCharset = case T.uncons t of
-        Nothing → False
-        Just(h,tail) → h `elem` az && T.all (`elem` az09) tail
-
-username ∷ User → Text
-username (User name) = name
-
-userFromName ∷ Text → Maybe User
-userFromName t = if validUsername t then Just $ User t else Nothing
+addHabit ∷ Habit → State → State
+addHabit habit (State habits hist) = (State (Set.insert habit habits) hist)
 
 
 -- [[Database]]
-$(deriveSafeCopy 0 'base ''User)
-$(deriveSafeCopy 2 'base ''Data)
+addHabit_ ∷ Habit → Update State ()
+addHabit_ habit = liftQuery ask >>= put ∘ addHabit habit
 
-delURL_ ∷ User → URL → Update Data ()
-delURL_ user url = liftQuery ask >>= put ∘ delURL user url
+didIt_ ∷ (Day,Habit) → Update State ()
+didIt_ (date,habit) = do
+    State habits history ← liftQuery ask
+    put $ State habits $ didIt (date,habit) history
 
-addURL_ ∷ User → URL → Update Data ()
-addURL_ user url = liftQuery ask >>= put ∘ addURL user url
+queryState ∷ Query State State
+queryState = ask
 
-setURLs_ ∷ User → Set URL → Update Data ()
-setURLs_ user urls = liftQuery ask >>= put ∘ setURLs user urls
+$(deriveSafeCopy 0 'base ''State)
+$(makeAcidic ''State ['queryState, 'addHabit_, 'didIt_])
 
-queryData ∷ Query Data Data
-queryData = ask
-
-$(makeAcidic ''Data ['queryData, 'delURL_, 'addURL_, 'setURLs_])
-
-getData ∷ AcidState Data → IO Data
-getData db = query db QueryData
+getState ∷ AcidState State → IO State
+getState db = query db QueryState
 
 
 -- [[Application Logic]]
-data Resp = NotOk | Ok | URLs (Set URL) | ServeClient deriving Show
-data Req
-    = BadReq | WebClient
-    | AddURL User URL | DelURL User URL | GetURLs User | SetURLs User (Set URL)
+data Resp
+    = NotOk | Ok | ServeClient | Habits (Set Habit) | Chains (Map Habit Int)
     deriving Show
 
-respond ∷ AcidState Data → Req → IO Resp
+data Req
+    = BadReq | WebClient
+    | GetFailures Day | GetChains Day |  DidIt Day Habit
+    | AddHabit Habit | GetHabits
+    deriving Show
+
+respond ∷ AcidState State → Req → IO Resp
 respond db req = case req of
     BadReq → return NotOk
-    AddURL user url → update db (AddURL_ user url) >> return Ok
-    GetURLs user → getData db >>= (return ∘ URLs ∘ getURLs user)
-    DelURL user url → update db (DelURL_ user url) >> return Ok
-    SetURLs user urls → update db (SetURLs_ user urls) >> return Ok
     WebClient → return ServeClient
+    GetHabits → getState db >>= (\(State habits _)→return $ Habits habits)
+    GetFailures date → getState db >>= return ∘ Habits ∘ failures date
+    AddHabit habit → update db (AddHabit_ habit) >> return Ok
+    DidIt date habit → update db (DidIt_ (date,habit)) >> return Ok
+    GetChains day → getState db >>= \(State allHabits hist) →
+        return $ Chains $ chainLengths $ chains day hist allHabits
 
 
 -- [[HTTP Requests and Responses]]
 decodeURIComponent ∷ Text → Text
 decodeURIComponent = pack ∘ URI.unEscapeString ∘ unpack
 
+mkHabit ∷ Text → Maybe Habit
+mkHabit t = if invalidHabit then Nothing else Just t where
+    invalidHabit = length t≡0 || length t>16 || not(Text.all (`elem` az) t)
+    az = ['a'..'z']
+
+mkDay ∷ Text → Maybe Day
+mkDay t = case Text.decimal t of
+    Left _ → Nothing
+    Right (v,_) → Just(ModifiedJulianDay v)
+
 decRequest ∷ W.Request → IO Req
 decRequest r = do
-    let notOK="This code assumes that usernames/passwords are valid and correct"
-    let usr uname = case userFromName uname of{Just u→u; Nothing→error notOK}
-    body ← W.lazyRequestBody r
-    let putURL user encUrl = AddURL user $ decodeURIComponent encUrl
-    let putURLs user = fromMaybe BadReq $ fmap (SetURLs user) $ J.decode body
+    today ← getCurrentTime >>= return ∘ utctDay
+    let day d = case d of
+        { "today" → Just today
+        ; "yesterday" → Just $ addDays (-1) today
+        ; _ → mkDay d }
+    let addhab hab = case mkHabit hab of
+        {Nothing→BadReq; Just h→AddHabit h}
+    let get conn date = case day date of
+        {Nothing→BadReq; Just d→conn d}
+    let did d h = case (day d, mkHabit h) of
+        {(Just date,Just hab) → DidIt date hab;  _ → BadReq}
     return $ case (W.pathInfo r, W.requestMethod r, W.queryString r) of
         ([],"GET",[]) → WebClient
-        (["index.html"],"GET",[]) → WebClient
-        (["api","users",user,"urls",url],"PUT",[]) → putURL (usr user) url
-        (["api","users",user,"urls"],"GET",[]) → GetURLs (usr user)
-        (["api","users",user,"urls"],"PUT",[]) → putURLs (usr user)
-        (["api","users",user,"urls"],"DELETE",[]) → SetURLs (usr user) Set.empty
-        (["api","users",user,"urls",url],"DELETE",[]) → DelURL (usr user) url
+        (["api","failures"],"GET",[]) → GetFailures today
+        (["api","failures",date],"GET",[]) → get GetFailures date
+        (["api","successes",date,habit],"PUT",[]) → did date habit
+        (["api","chains"],"GET",[]) → GetChains today
+        (["api","chains",date],"GET",[]) → get GetChains date
+        (["api","habits"],"GET",[]) → GetHabits
+        (["api","habits",habit],"PUT",[]) → addhab habit
         _ → BadReq
 
 encResponse ∷ Resp → W.Response
 encResponse resp = r resp where
     r NotOk = W.responseLBS W.status404 [] ""
     r Ok = W.responseLBS W.status204 [] ""
-    r ServeClient = W.responseFile W.status200 html "./index.html" Nothing where
-    r (URLs urls) = (W.responseLBS W.status200 json $ J.encode urls) where
+    r ServeClient = W.responseFile W.status200 html "./index.html" Nothing
+    r (Habits habits) = (W.responseLBS W.status200 json $ J.encode habits)
+    r (Chains cs) = (W.responseLBS W.status200 json $ J.encode cs)
     html = [("Content-Type", "text/html")]
     json = [("Content-Type", "application/javascript")]
 
-app ∷ AcidState Data → W.Request → IO W.Response
+app ∷ AcidState State → W.Request → IO W.Response
 app db webreq = do
     req ← decRequest webreq
     putStrLn "=========="
@@ -214,7 +161,8 @@ app db webreq = do
 
 main ∷ IO()
 main = do
-    db ← openLocalState (Data M.empty)
-    finally (W.run 8080 $ basicAuth M.empty db $ app db) $ do
+    let dumb = ["curfew", "breakfast", "lunch", "dinner", "nosnacks"]
+    db ← openLocalState (State (Set.fromList dumb) Map.empty)
+    finally (W.run 8080 $ app db) $ do
         createCheckpoint db
         closeAcidState db
