@@ -4,11 +4,11 @@
 </style></head><body>
 
 <p>
+    <ul id="notices"></ul>
     <form name="x" action="javascript:addHabitHandler()">
         Add a habit
         <input name="habit" value="habit" type="text" id="habit"></input>
         </form>
-    <ul id="notices"></ul>
     </p>
 
 <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
@@ -95,20 +95,14 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     console.log(successSet);
     console.log(failureSet);
 
-    var hdr = $("<p>");
+    var hdr = $("<h1>");
     var back = $("<span class='refutable'>&lt;&lt;</span>");
     var forward = $("<span class='refutable'>&gt;&gt;</span>");
     back.click(shiftDate(-1, update));
     forward.click(shiftDate(1, update));
     hdr.append(back);
-    hdr.append(julian);
+    hdr.append(" " + julian + " ");
     hdr.append(forward);
-
-    var habitLI = $("<li>")
-    habitLI.append("Habits:");
-    for (var i in habitSet) {
-        habitLI.append(" ");
-        habitLI.append(refutable(habitSet[i],delHabit(habitSet[i],update))); }
 
     var successLI = $("<li>");
     successLI.append("You succeeded at:");
@@ -124,10 +118,17 @@ var writeDOM = function(habitSet, successSet, failureSet) {
         failureLI.append(refutable(failureSet[i],
             setDone(julian, failureSet[i], true, update))); }
 
+    var habitLI = $("<li>");
+    habitLI.append("Habits:");
+    for (var i in habitSet) {
+        habitLI.append(" ");
+        habitLI.append(refutable(habitSet[i],delHabit(habitSet[i],update))); }
+
     node.append(hdr);
-    node.append(habitLI);
     node.append(successLI);
-    node.append(failureLI); }
+    node.append(failureLI);
+	node.append($("<br><br>"));
+    node.append(habitLI); }
 
 update();
 
