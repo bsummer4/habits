@@ -1,0 +1,5 @@
+TODO Move the habits list and the add-habit dialoge to the bottom. Too noisy.
+TODO Show the date in a human-readable format.
+TODO Show all chains upto today for successful habits.
+TODO Show all chains upto yesterday for successful habits.
+TODO Support basic authentication without using a users database.

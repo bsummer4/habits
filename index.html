@@ -1,8 +1,6 @@
 <html><head><style>
-
     span.refutable { text-decoration:underline; }
     span.refutable:hover { background-color:yellow; }
-
 </style></head><body>
 
 <p>
@@ -25,6 +23,14 @@
 // (["api","habits",h],"DELETE",[])
 // (["api","habits","done"],"GET",[("day",d),("status",s)])
 // (["api","habits",h,"done"],"POST",[("day",d),("status",s)])
+
+Date.prototype.modifiedJulianDay = function() {
+    return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
+
+var today = new Date(); // set any date
+var julian = today.modifiedJulianDay(); // get Julian counterpart
+var shiftDate = function(n, cont) { return (function() {
+    julian += n; cont(); }); }
 
 var refutable = function(name, refute) {
     var result = $("<span class=refutable>");
@@ -68,7 +74,7 @@ var calcFailures = function(habitSet, successSet) {
 
 var update = function() {
     allHabits(function(habitSet) {
-        successes("today", function(successSet) {
+        successes(julian, function(successSet) {
             var failureSet = calcFailures(habitSet,successSet);
             writeDOM(habitSet, successSet, failureSet); }); }); }
 
@@ -89,6 +95,15 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     console.log(successSet);
     console.log(failureSet);
 
+    var hdr = $("<p>");
+    var back = $("<span class='refutable'>&lt;&lt;</span>");
+    var forward = $("<span class='refutable'>&gt;&gt;</span>");
+    back.click(shiftDate(-1, update));
+    forward.click(shiftDate(1, update));
+    hdr.append(back);
+    hdr.append(julian);
+    hdr.append(forward);
+
     var habitLI = $("<li>")
     habitLI.append("Habits:");
     for (var i in habitSet) {
@@ -100,15 +115,16 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     for (var i in successSet) {
         successLI.append(" ");
         successLI.append(refutable(successSet[i],
-            setDone("today", successSet[i], false, update))); }
+            setDone(julian, successSet[i], false, update))); }
 
     var failureLI = $("<li>");
     failureLI.append("You failed at:");
     for (var i in failureSet) {
         failureLI.append(" ");
         failureLI.append(refutable(failureSet[i],
-            setDone("today", failureSet[i], true, update))); }
+            setDone(julian, failureSet[i], true, update))); }
 
+    node.append(hdr);
     node.append(habitLI);
     node.append(successLI);
     node.append(failureLI); }

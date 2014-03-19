@@ -31,7 +31,7 @@ successes day (State habits hist) =
     habits `Set.intersection` fromMaybe Set.empty(Map.lookup day hist)
 
 failures ∷ Day → State → Set Habit
-failures day st@(State habits hist) = habits `Set.difference` successes day st
+failures day st@(State habits _) = habits `Set.difference` successes day st
 
 setDone ∷ Day → Habit → Bool → State → State
 setDone day habit status st@(State habits hist) = State habits hist' where
@@ -41,10 +41,10 @@ setDone day habit status st@(State habits hist) = State habits hist' where
         else Set.delete habit $ successes day st
 
 chains ∷ Day → State → [Set Habit]
-chains today st@(State allHabits _) = r today allHabits where
-    r day soFar = if Set.null habits then [] else habits:yesterday where
-        yesterday = r (addDays (-1) day) habits
-        habits = soFar `Set.intersection` (successes day st)
+chains day st@(State allHabits _) = r day allHabits where
+    r d soFar = if Set.null habits then [] else habits:yesterday where
+        yesterday = r (addDays (-1) d) habits
+        habits = soFar `Set.intersection` (successes d st)
 
 incCounts ∷ Ord k ⇒ Set k → Map k Int → Map k Int
 incCounts keys init = Set.fold iter init keys where
@@ -69,9 +69,7 @@ delHabit_ ∷ Habit → Update State ()
 delHabit_ habit = liftQuery ask >>= put ∘ delHabit habit
 
 setDone_ ∷ Day → Habit → Bool → Update State ()
-setDone_ day habit status = do
-    st@(State habits history) ← liftQuery ask
-    put $ setDone day habit status st
+setDone_ day habit status = liftQuery ask >>= put ∘ setDone day habit status
 
 queryState ∷ Query State State
 queryState = ask
@@ -101,8 +99,7 @@ respond db req = case req of
     WebClient → return ServeClient
     ListHabits → getState db >>= (\(State habits _)→return $ Habits habits)
     GetFailures date → getState db >>= return ∘ Habits ∘ failures date
-    GetSuccesses date → getState db >>= (\st@(State _ hist) →
-        return $ Habits $ successes date st)
+    GetSuccesses date → getState db >>= return ∘ Habits ∘ successes date
     AddHabit habit → update db (AddHabit_ habit) >> return Ok
     DelHabit habit → update db (DelHabit_ habit) >> return Ok
     SetDone date habit stat → update db (SetDone_ date habit stat) >> return Ok
@@ -126,19 +123,15 @@ mkDay t = case Text.decimal t of
 
 decRequest ∷ W.Request → IO Req
 decRequest r = do
-    today ← getCurrentTime >>= return ∘ utctDay
     let
         orReject = fromMaybe BadReq
-        day daystr = case daystr∷ByteString of
-            "today" → Just today
-            "yesterday" → Just $ addDays (-1) today
-            d → mkDay $ decodeUtf8 d
-        dayQuery daystr statusstr = case (join(fmap day daystr), statusstr) of
+        day = mkDay ∘ decodeUtf8
+        dayQuery daystr status = case (join(fmap day daystr), status) of
             (Just d, Just "True") → GetSuccesses d
             (Just d, Just "False") → GetFailures d
             _ → BadReq
-        done habstr daystr statusstr =
-            case (join(fmap day daystr), mkHabit habstr, statusstr) of
+        done habstr daystr status =
+            case (join(fmap day daystr), mkHabit habstr, status) of
                 (Just d, Just h, Just "True") → SetDone d h True
                 (Just d, Just h, Just "False") → SetDone d h False
                 _ → BadReq
