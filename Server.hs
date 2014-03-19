@@ -1,9 +1,3 @@
--- Here's what the interface might look like:
---     You still need to do $h, $i, $j, and $k today.
---     Yesterday, you fucked up on $h, $i, $j, and $k.
---     Gratz! You've been doing $h for $x days in a row!
---     Gratz! You've been doing $k for $y days in a row!
-
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables #-}
@@ -24,7 +18,6 @@ import qualified Data.Set as Set
 import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Text.Read as Text
--- import Data.Time.Clock
 import Data.Time.Calendar
 
 
@@ -39,9 +32,11 @@ successes day hist = case Map.lookup day hist of {Nothing→Set.empty; Just s→
 failures ∷ Day → State → Set Habit
 failures day (State habits hist) = habits `Set.difference` successes day hist
 
-didIt ∷ (Day,Habit) → History → History
-didIt (day,habit) hist = Map.insert day daySuccesses hist where
-    daySuccesses = Set.insert habit $ successes day hist
+setDone ∷ Day → Habit → Bool → History → History
+setDone day habit status hist = Map.insert day daySuccesses hist where
+    daySuccesses = if status
+        then Set.insert habit $ successes day hist
+        else Set.delete habit $ successes day hist
 
 chains ∷ Day → History → Set Habit → [Set Habit]
 chains today hist soFar = if Set.null habits then [] else habits:yesterday where
@@ -59,21 +54,27 @@ chainLengths = List.foldl (\acc hs → incCounts hs acc) Map.empty
 addHabit ∷ Habit → State → State
 addHabit habit (State habits hist) = (State (Set.insert habit habits) hist)
 
+delHabit ∷ Habit → State → State
+delHabit habit (State habits hist) = (State (Set.delete habit habits) hist)
+
 
 -- [[Database]]
 addHabit_ ∷ Habit → Update State ()
 addHabit_ habit = liftQuery ask >>= put ∘ addHabit habit
 
-didIt_ ∷ (Day,Habit) → Update State ()
-didIt_ (date,habit) = do
+delHabit_ ∷ Habit → Update State ()
+delHabit_ habit = liftQuery ask >>= put ∘ delHabit habit
+
+setDone_ ∷ Day → Habit → Bool → Update State ()
+setDone_ day habit status = do
     State habits history ← liftQuery ask
-    put $ State habits $ didIt (date,habit) history
+    put $ State habits $ setDone day habit status history
 
 queryState ∷ Query State State
 queryState = ask
 
-$(deriveSafeCopy 0 'base ''State)
-$(makeAcidic ''State ['queryState, 'addHabit_, 'didIt_])
+$(deriveSafeCopy 1 'base ''State)
+$(makeAcidic ''State ['queryState, 'addHabit_, 'setDone_, 'delHabit_])
 
 getState ∷ AcidState State → IO State
 getState db = query db QueryState
@@ -86,18 +87,22 @@ data Resp
 
 data Req
     = BadReq | WebClient
-    | GetFailures Day | GetChains Day |  DidIt Day Habit
-    | AddHabit Habit | GetHabits
+    | GetSuccesses Day | GetFailures Day
+    | GetChains Day | SetDone Day Habit Bool
+    | AddHabit Habit | DelHabit Habit | ListHabits
     deriving Show
 
 respond ∷ AcidState State → Req → IO Resp
 respond db req = case req of
     BadReq → return NotOk
     WebClient → return ServeClient
-    GetHabits → getState db >>= (\(State habits _)→return $ Habits habits)
+    ListHabits → getState db >>= (\(State habits _)→return $ Habits habits)
     GetFailures date → getState db >>= return ∘ Habits ∘ failures date
+    GetSuccesses date → getState db >>= (\(State _ hist) →
+        return $ Habits $ successes date hist)
     AddHabit habit → update db (AddHabit_ habit) >> return Ok
-    DidIt date habit → update db (DidIt_ (date,habit)) >> return Ok
+    DelHabit habit → update db (DelHabit_ habit) >> return Ok
+    SetDone date habit stat → update db (SetDone_ date habit stat) >> return Ok
     GetChains day → getState db >>= \(State allHabits hist) →
         return $ Chains $ chainLengths $ chains day hist allHabits
 
@@ -116,28 +121,36 @@ mkDay t = case Text.decimal t of
     Left _ → Nothing
     Right (v,_) → Just(ModifiedJulianDay v)
 
+
 decRequest ∷ W.Request → IO Req
 decRequest r = do
     today ← getCurrentTime >>= return ∘ utctDay
-    let day d = case d of
-        { "today" → Just today
-        ; "yesterday" → Just $ addDays (-1) today
-        ; _ → mkDay d }
-    let addhab hab = case mkHabit hab of
-        {Nothing→BadReq; Just h→AddHabit h}
-    let get conn date = case day date of
-        {Nothing→BadReq; Just d→conn d}
-    let did d h = case (day d, mkHabit h) of
-        {(Just date,Just hab) → DidIt date hab;  _ → BadReq}
-    return $ case (W.pathInfo r, W.requestMethod r, W.queryString r) of
+    let
+        orReject = fromMaybe BadReq
+        day daystr = case daystr∷ByteString of
+            "today" → Just today
+            "yesterday" → Just $ addDays (-1) today
+            d → mkDay $ decodeUtf8 d
+        dayQuery daystr statusstr = case (join(fmap day daystr), statusstr) of
+            (Just d, Just "True") → GetSuccesses d
+            (Just d, Just "False") → GetFailures d
+            _ → BadReq
+        done habstr daystr statusstr =
+            case (join(fmap day daystr), mkHabit habstr, statusstr) of
+                (Just d, Just h, Just "True") → SetDone d h True
+                (Just d, Just h, Just "False") → SetDone d h False
+                _ → BadReq
+        hAddHabit habit = orReject $ fmap AddHabit $ mkHabit habit
+        hDelHabit habit = orReject $ fmap DelHabit $ mkHabit habit
+        hChains d = orReject $ fmap GetChains $ join $ fmap day d
+    return $ case(W.pathInfo r, W.requestMethod r, List.sort$W.queryString r) of
         ([],"GET",[]) → WebClient
-        (["api","failures"],"GET",[]) → GetFailures today
-        (["api","failures",date],"GET",[]) → get GetFailures date
-        (["api","successes",date,habit],"PUT",[]) → did date habit
-        (["api","chains"],"GET",[]) → GetChains today
-        (["api","chains",date],"GET",[]) → get GetChains date
-        (["api","habits"],"GET",[]) → GetHabits
-        (["api","habits",habit],"PUT",[]) → addhab habit
+        (["api","chains"],"GET",[("upto",d)]) → hChains d
+        (["api","habits"],"LIST",[]) → ListHabits
+        (["api","habits",h],"PUT",[]) → hAddHabit h
+        (["api","habits",h],"DELETE",[]) → hDelHabit h
+        (["api","habits","done"],"GET",[("day",d),("status",s)]) → dayQuery d s
+        (["api","habits",h,"done"],"POST",[("day",d),("status",s)]) → done h d s
         _ → BadReq
 
 encResponse ∷ Resp → W.Response
