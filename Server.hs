@@ -26,22 +26,25 @@ type Habit = Text
 type History = Map Day (Set Habit)
 data State = State (Set Habit) History deriving Typeable
 
-successes ∷ Day → History → Set Habit
-successes day hist = case Map.lookup day hist of {Nothing→Set.empty; Just s→s}
+successes ∷ Day → State → Set Habit
+successes day (State habits hist) =
+    habits `Set.intersection` fromMaybe Set.empty(Map.lookup day hist)
 
 failures ∷ Day → State → Set Habit
-failures day (State habits hist) = habits `Set.difference` successes day hist
+failures day st@(State habits hist) = habits `Set.difference` successes day st
 
-setDone ∷ Day → Habit → Bool → History → History
-setDone day habit status hist = Map.insert day daySuccesses hist where
+setDone ∷ Day → Habit → Bool → State → State
+setDone day habit status st@(State habits hist) = State habits hist' where
+    hist' = Map.insert day daySuccesses hist
     daySuccesses = if status
-        then Set.insert habit $ successes day hist
-        else Set.delete habit $ successes day hist
+        then Set.insert habit $ successes day st
+        else Set.delete habit $ successes day st
 
-chains ∷ Day → History → Set Habit → [Set Habit]
-chains today hist soFar = if Set.null habits then [] else habits:yesterday where
-    yesterday = chains (addDays (-1) today) hist habits
-    habits = soFar `Set.intersection` (successes today hist)
+chains ∷ Day → State → [Set Habit]
+chains today st@(State allHabits _) = r today allHabits where
+    r day soFar = if Set.null habits then [] else habits:yesterday where
+        yesterday = r (addDays (-1) day) habits
+        habits = soFar `Set.intersection` (successes day st)
 
 incCounts ∷ Ord k ⇒ Set k → Map k Int → Map k Int
 incCounts keys init = Set.fold iter init keys where
@@ -67,8 +70,8 @@ delHabit_ habit = liftQuery ask >>= put ∘ delHabit habit
 
 setDone_ ∷ Day → Habit → Bool → Update State ()
 setDone_ day habit status = do
-    State habits history ← liftQuery ask
-    put $ State habits $ setDone day habit status history
+    st@(State habits history) ← liftQuery ask
+    put $ setDone day habit status st
 
 queryState ∷ Query State State
 queryState = ask
@@ -98,13 +101,12 @@ respond db req = case req of
     WebClient → return ServeClient
     ListHabits → getState db >>= (\(State habits _)→return $ Habits habits)
     GetFailures date → getState db >>= return ∘ Habits ∘ failures date
-    GetSuccesses date → getState db >>= (\(State _ hist) →
-        return $ Habits $ successes date hist)
+    GetSuccesses date → getState db >>= (\st@(State _ hist) →
+        return $ Habits $ successes date st)
     AddHabit habit → update db (AddHabit_ habit) >> return Ok
     DelHabit habit → update db (DelHabit_ habit) >> return Ok
     SetDone date habit stat → update db (SetDone_ date habit stat) >> return Ok
-    GetChains day → getState db >>= \(State allHabits hist) →
-        return $ Chains $ chainLengths $ chains day hist allHabits
+    GetChains day → getState db >>= return ∘ Chains ∘ chainLengths ∘ chains day
 
 
 -- [[HTTP Requests and Responses]]
