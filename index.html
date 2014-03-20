@@ -27,11 +27,11 @@
 Date.prototype.modifiedJulianDay = function() {
     return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
 
-var today = new Date(); // set any date
-var julian = today.modifiedJulianDay(); // get Julian counterpart
-var shiftDate = function(n, cont) { return (function() {
-    julian += n; cont(); }); }
-
+var julian = function(d) { return d.modifiedJulianDay(); }
+var epoch = julian(new Date(0))
+var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
+var day = julian(new Date());
+var shiftDate = function(n,cont){ return(function(){ day+=n; cont(); });}
 var refutable = function(name, refute) {
     var result = $("<span class=refutable>");
     result.text(name);
@@ -74,7 +74,7 @@ var calcFailures = function(habitSet, successSet) {
 
 var update = function() {
     allHabits(function(habitSet) {
-        successes(julian, function(successSet) {
+        successes(day, function(successSet) {
             var failureSet = calcFailures(habitSet,successSet);
             writeDOM(habitSet, successSet, failureSet); }); }); }
 
@@ -101,7 +101,8 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     back.click(shiftDate(-1, update));
     forward.click(shiftDate(1, update));
     hdr.append(back);
-    hdr.append(" " + julian + " ");
+    var d = fromJulian(day)
+    hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ");
     hdr.append(forward);
 
     var successLI = $("<li>");
@@ -109,14 +110,14 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     for (var i in successSet) {
         successLI.append(" ");
         successLI.append(refutable(successSet[i],
-            setDone(julian, successSet[i], false, update))); }
+            setDone(day, successSet[i], false, update))); }
 
     var failureLI = $("<li>");
     failureLI.append("You failed at:");
     for (var i in failureSet) {
         failureLI.append(" ");
         failureLI.append(refutable(failureSet[i],
-            setDone(julian, failureSet[i], true, update))); }
+            setDone(day, failureSet[i], true, update))); }
 
     var habitLI = $("<li>");
     habitLI.append("Habits:");
@@ -127,7 +128,7 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     node.append(hdr);
     node.append(successLI);
     node.append(failureLI);
-	node.append($("<br><br>"));
+        node.append($("<br><br>"));
     node.append(habitLI); }
 
 update();
