@@ -38,7 +38,7 @@ var addHabitHandler = function(x) {
 
 var trace = function(x) { console.log(x); return x; }
 var json = function(s) {
-    if (s) {return JSON.parse(trace(s)); }
+    if (s) {return JSON.parse(s); }
     else {return {}}; }
 
 var delHabit = function(habit,cont) {
@@ -84,10 +84,6 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     var node = $("#notices");
     node.empty()
 
-    console.log(habitSet);
-    console.log(successSet);
-    console.log(failureSet);
-
     var hdr = $("<h1>");
     var back = $("<span>&lt;&lt;</span>");
     var forward = $("<span>&gt;&gt;</span>");
@@ -101,15 +97,17 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     hdr.append(forward);
 
     var habitList = $("<p>");
-    for (var i in successSet) {
+    successSet.sort(); failureSet.sort();
+    for (var i=0,j=0;;) {
+        if (i>=successSet.length && j>=failureSet.length) break;
         habitList.append(" ");
-        habitList.append(habitDOM(successSet[i], "success",
-            setDone(day, successSet[i], false, update))); }
-
-    for (var i in failureSet) {
-        habitList.append(" ");
-        habitList.append(habitDOM(failureSet[i], "failure",
-            setDone(day, failureSet[i], true, update))); }
+        if (j >= failureSet.length || successSet[i] <= failureSet[j]) {
+            var n = successSet[i++];
+            habitList.append(habitDOM(n, "success", setDone(day,n,false,update))); }
+        else if (i >= successSet.length || successSet[i] > failureSet[j]) {
+            var n = failureSet[j++];
+            habitList.append(habitDOM(n, "failure", setDone(day,n,true,update))); }
+        else { break; }}
 
     var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
     var allHabits = $("<p>");
@@ -122,7 +120,7 @@ var writeDOM = function(habitSet, successSet, failureSet) {
 
     node.append(hdr);
     node.append(habitList);
-        node.append($("<br><br>"));
+    node.append($("<br><br>"));
     node.append(allHabitsForm); }
 
 update();
