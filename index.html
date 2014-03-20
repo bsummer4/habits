@@ -1,29 +1,21 @@
 <html><head><style>
-    span.refutable { text-decoration:underline; }
+    span.refutable {
+        text-decoration:underline; border-width:1; border-style:solid; }
+    span.datechange { forground-color:blue; text-decoration:underline; }
+    span.success { background-color:#88ff88; border-color:#228822; }
+    span.failure { background-color:#ff8888; border-color:#882222; }
+    span.notapplicable { background-color:yellow; border-color:darkyellow; }
     span.refutable:hover { background-color:yellow; }
 </style></head><body>
 
 <p>
     <ul id="notices"></ul>
-    <form name="x" action="javascript:addHabitHandler()">
-        Add a habit
-        <input name="habit" value="habit" type="text" id="habit"></input>
-        </form>
+    <br><br>
+    <ul id="habitList"></ul>
     </p>
 
 <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
 <script>
-// You still need to do $h, $i, $j, and $k today.
-// Yesterday, you fucked up on $h, $i, $j, and $k.
-// Gratz! You've been doing $h for $x days in a row!
-// Gratz! You've been doing $k for $y days in a row!
-// (["api","chains"],"GET",[("upto",d)])
-// (["api","habits"],"LIST",[])
-// (["api","habits",h],"PUT",[])
-// (["api","habits",h],"DELETE",[])
-// (["api","habits","done"],"GET",[("day",d),("status",s)])
-// (["api","habits",h,"done"],"POST",[("day",d),("status",s)])
-
 Date.prototype.modifiedJulianDay = function() {
     return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
 
@@ -32,10 +24,12 @@ var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
 var day = julian(new Date());
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont(); });}
-var refutable = function(name, refute) {
-    var result = $("<span class=refutable>");
+var habitDOM = function(name, status, callback) {
+    var result = $("<span>");
+    result.addClass("refutable")
     result.text(name);
-    result.click(refute);
+    result.click(callback);
+    if (status) result.addClass(status);
     return result; }
 
 var addHabitHandler = function(x) {
@@ -43,7 +37,6 @@ var addHabitHandler = function(x) {
     addHabit(hab, update)(); }
 
 var trace = function(x) { console.log(x); return x; }
-
 var json = function(s) {
     if (s) {return JSON.parse(trace(s)); }
     else {return {}}; }
@@ -96,8 +89,10 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     console.log(failureSet);
 
     var hdr = $("<h1>");
-    var back = $("<span class='refutable'>&lt;&lt;</span>");
-    var forward = $("<span class='refutable'>&gt;&gt;</span>");
+    var back = $("<span>&lt;&lt;</span>");
+    var forward = $("<span>&gt;&gt;</span>");
+    back.addClass("datechange");
+    forward.addClass("datechange");
     back.click(shiftDate(-1, update));
     forward.click(shiftDate(1, update));
     hdr.append(back);
@@ -105,31 +100,30 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ");
     hdr.append(forward);
 
-    var successLI = $("<li>");
-    successLI.append("You succeeded at:");
+    var habitList = $("<p>");
     for (var i in successSet) {
-        successLI.append(" ");
-        successLI.append(refutable(successSet[i],
+        habitList.append(" ");
+        habitList.append(habitDOM(successSet[i], "success",
             setDone(day, successSet[i], false, update))); }
 
-    var failureLI = $("<li>");
-    failureLI.append("You failed at:");
     for (var i in failureSet) {
-        failureLI.append(" ");
-        failureLI.append(refutable(failureSet[i],
+        habitList.append(" ");
+        habitList.append(habitDOM(failureSet[i], "failure",
             setDone(day, failureSet[i], true, update))); }
 
-    var habitLI = $("<li>");
-    habitLI.append("Habits:");
+    var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
+    var allHabits = $("<p>");
     for (var i in habitSet) {
-        habitLI.append(" ");
-        habitLI.append(refutable(habitSet[i],delHabit(habitSet[i],update))); }
+        allHabits.append(" ");
+        allHabits.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
+    allHabits.append(" ");
+    allHabits.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
+    allHabitsForm.append(allHabits);
 
     node.append(hdr);
-    node.append(successLI);
-    node.append(failureLI);
+    node.append(habitList);
         node.append($("<br><br>"));
-    node.append(habitLI); }
+    node.append(allHabitsForm); }
 
 update();
 

@@ -1,2 +1,27 @@
+TODO Users and logins. Add simple user support.
+	Setup SSL
+	registration = login attempt with a username that doesn't exist.
+	Endpoints needs to include the username.
+		Or not! Just get the username from the header?
+		I vote yes.
+			Authentication is only required for modifications.
+			The habit data itself is public.
+
 TODO Show all chains upto today for successful habits.
 TODO Show all chains upto yesterday for successful habits.
+TODO Add a list of notes for each day.
+TODO Associate a double with each habit.
+TODO Get plots for each habit.
+TODO There should be a not-applicable status for some habits.
+TODO using Long-polling or web sockets to get updates in real time.
+
+# UI Issues
+TODO Numeric tracking:
+	All successful habits have an associated number.
+	Initially, it's NaN.
+	Click to change it.
+
+TODO Notes.
+	There's an <input></input> to add new notes.
+	Click on a note to delete it.
+	Notes are associated with days.
