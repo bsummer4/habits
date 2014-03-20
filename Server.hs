@@ -19,6 +19,82 @@ import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Text.Read as Text
 import Data.Time.Calendar
+import qualified Data.ByteString.Base64 as Base64
+
+
+-- [[Datatypes]]
+newtype User = User Text deriving (Eq, Ord, Show, Typeable)
+type Password = Text
+
+validUsername ∷ Text → Bool
+validUsername t = lenOK && okCharset where
+    lenOK = length t≤50 && length t>0
+    (az,az09) = (['a'..'z']++['A'..'Z'], az++['0'..'9'])
+    okCharset = case Text.uncons t of
+        Nothing → False
+        Just(h,tail) → h `elem` az && Text.all (`elem` az09) tail
+
+username ∷ User → Text
+username (User name) = name
+
+userFromName ∷ Text → Maybe User
+userFromName t = if validUsername t then Just $ User t else Nothing
+
+
+-- [[Authentication Stuff]]
+data AuthParse = Anon | Malformed | AuthAttempt Text User Password
+type Registrations = Map User Password
+
+userPassFromBasicAuthString ∷ Text → Maybe (Text,Text)
+userPassFromBasicAuthString s = case Base64.decode $ encodeUtf8 s of
+    Left _ → Nothing
+    Right pair → case Text.breakOn ":" $ decodeUtf8 pair of
+        (_,"") → Nothing
+        (user,colonPass) → Just (user, Text.tail colonPass)
+
+unPrefix ∷ Text → Text → Maybe Text
+unPrefix prefix str = case Text.splitAt (length prefix) str of
+    (strHead, strTail) → if strHead≠prefix then Nothing else Just strTail
+
+parseAuthorization ∷ ByteString → Maybe (Text,Text)
+parseAuthorization =
+    join∘fmap userPassFromBasicAuthString∘unPrefix "Basic "∘decodeUtf8
+
+parseWWWAuthenticate ∷ ByteString → Maybe Text
+parseWWWAuthenticate s = case unPrefix "Basic realm=\"" $ decodeUtf8 s of
+    Nothing → Nothing
+    Just "" → Nothing
+    Just(shit∷Text) → case Text.splitAt (length shit-1) shit of
+        (r,"\"") → Just r
+        _ → Nothing
+
+authAttempt ∷ W.Request → AuthParse
+authAttempt req = f where
+    hdrs = W.requestHeaders req
+    parse a b = case (parseWWWAuthenticate a, parseAuthorization b) of
+        (Just aRealm, Just(uname,p)) → case userFromName uname of
+            Nothing → Malformed
+            Just u → AuthAttempt aRealm u p
+        _ → Malformed
+    f = case (lookup "WWW-Authenticate" hdrs, lookup "Authorization" hdrs) of
+        (Nothing, Just b) → parse "Basic realm=\"api\"" b
+        (Nothing, Nothing) → Anon
+        (Just a, Just b) → parse a b
+        _ → Malformed
+
+authFailed ∷ IO W.Response
+authFailed = return $ W.responseLBS W.status403 [] ""
+
+-- This rejects requests with invalid credentials. Any requests that pass
+-- through this filter will either have no credentials or correct credentials.
+basicAuth ∷ Registrations → AcidState State → W.Application → W.Application
+basicAuth users _ waiapp req = case authAttempt req of
+    Anon → return $ W.responseLBS W.status401 [("www-authenticate","Basic")] ""
+    Malformed → authFailed
+    AuthAttempt _ u p → case Map.lookup u users of
+        Nothing → authFailed
+        Just(password) → if password≡p then waiapp req else
+            return $ W.responseLBS W.status400 [] ""
 
 
 -- [[Habit Management]]
@@ -167,10 +243,14 @@ app db webreq = do
     putStrLn $ pack $ show resp
     return $ encResponse resp
 
+
+regs ∷ Registrations
+regs = Map.fromList [(User "user","pass")]
+
 main ∷ IO()
 main = do
     let dumb = ["curfew", "breakfast", "lunch", "dinner", "nosnacks"]
     db ← openLocalState (State (Set.fromList dumb) Map.empty)
-    finally (W.run 8080 $ app db) $ do
+    finally (W.run 8080 $ basicAuth regs db $ app db) $ do
         createCheckpoint db
         closeAcidState db
