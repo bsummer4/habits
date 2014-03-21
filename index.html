@@ -1,18 +1,21 @@
 <html><head><style>
     span.refutable {
-        text-decoration:underline; border-width:1; border-style:solid; }
+        border-width:1; border-style:solid;
+        padding:1px; margin:1px; display:inline-block; }
     span.datechange { forground-color:blue; text-decoration:underline; }
     span.success { background-color:#88ff88; border-color:#228822; }
     span.failure { background-color:#ff8888; border-color:#882222; }
     span.notapplicable { background-color:yellow; border-color:darkyellow; }
     span.refutable:hover { background-color:yellow; }
+    div.toplevel { max-width:400px; }
+    h1.header { text-align:center; }
 </style></head><body>
 
-<p>
+<div class="toplevel">
     <ul id="notices"></ul>
     <br><br>
     <ul id="habitList"></ul>
-    </p>
+    </div>
 
 <script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
 <script>
@@ -85,6 +88,7 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     node.empty()
 
     var hdr = $("<h1>");
+    hdr.addClass("header")
     var back = $("<span>&lt;&lt;</span>");
     var forward = $("<span>&gt;&gt;</span>");
     back.addClass("datechange");
@@ -100,7 +104,7 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     successSet.sort(); failureSet.sort();
     for (var i=0,j=0;;) {
         if (i>=successSet.length && j>=failureSet.length) break;
-        habitList.append(" ");
+        // habitList.append(" ");
         if (j >= failureSet.length || successSet[i] <= failureSet[j]) {
             var n = successSet[i++];
             habitList.append(habitDOM(n, "success", setDone(day,n,false,update))); }
@@ -112,9 +116,9 @@ var writeDOM = function(habitSet, successSet, failureSet) {
     var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
     var allHabits = $("<p>");
     for (var i in habitSet) {
-        allHabits.append(" ");
+        // allHabits.append(" ");
         allHabits.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
-    allHabits.append(" ");
+    // allHabits.append(" ");
     allHabits.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
     allHabitsForm.append(allHabits);
 
