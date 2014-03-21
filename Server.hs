@@ -10,7 +10,6 @@ import Prelude (read)
 import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
 import System.Environment (getEnv)
-import qualified Network.URI as URI
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -54,6 +53,16 @@ data Req
     | AddHabit Habit | DelHabit Habit | ListHabits
     deriving Show
 
+mkHabit ∷ Text → Maybe Habit
+mkHabit t = if invalidHabit then Nothing else Just t where
+    invalidHabit = length t≡0 || length t>16 || not(Text.all (`elem` az) t)
+    az = ['a'..'z']
+
+mkDay ∷ Text → Maybe Day
+mkDay t = case Text.decimal t of
+    Left _ → Nothing
+    Right (v,_) → Just(ModifiedJulianDay v)
+
 validUsername ∷ Text → Bool
 validUsername t = lenOK && okCharset where
     lenOK = length t≤50 && length t>0
@@ -86,16 +95,16 @@ incCounts keys init = Set.fold iter init keys where
 
 -- [[Database]]
 addHabitDB ∷ Habit → Update State ()
-addHabitDB habit = liftQuery ask >>= put ∘ add habit where
-    add habit (State rs habs hist) = (State rs (Set.insert habit habs) hist)
+addHabitDB habit = liftQuery ask >>= put ∘ add where
+    add (State rs habits hist) = (State rs (Set.insert habit habits) hist)
 
 delHabitDB ∷ Habit → Update State ()
-delHabitDB habit = liftQuery ask >>= put ∘ del habit where
-    del habit (State rs habs hist) = (State rs (Set.delete habit habs) hist)
+delHabitDB habit = liftQuery ask >>= put ∘ del where
+    del (State rs habits hist) = (State rs (Set.delete habit habits) hist)
 
 setDoneDB ∷ Day → Habit → Bool → Update State ()
-setDoneDB day habit status = liftQuery ask >>= put∘set day habit status where
-    set day habit status st@(State regs habits hist) =
+setDoneDB day habit status = liftQuery ask >>= put∘set where
+    set st@(State regs habits hist) =
         State regs habits hist' where
             hist' = Map.insert day daySuccesses hist
             daySuccesses = if status
@@ -156,9 +165,6 @@ authAttempt req = f where
         (Just a, Just b) → parse a b
         _ → Malformed
 
-authFailed ∷ IO W.Response
-authFailed = return $ W.responseLBS W.status403 [] ""
-
 -- This rejects requests with invalid credentials. Any requests that pass
 -- through this filter will either have no credentials or correct credentials.
 basicAuth ∷ AcidState State → W.Application → W.Application
@@ -167,7 +173,7 @@ basicAuth db waiapp req = do
     putStrLn $ Text.pack $ show users
     case authAttempt req of
         Anon → return $ W.responseLBS W.status401 [("www-authenticate","Basic")] ""
-        Malformed → authFailed
+        Malformed → return $ W.responseLBS W.status403 [] ""
         AuthAttempt _ u p → case Map.lookup u users of
             Nothing → update db (RegisterUserDB u p) >> waiapp req
             Just(password) → if password≡p then waiapp req else
@@ -197,20 +203,6 @@ respond db req = case req of
 
 
 -- [[HTTP Requests and Responses]]
-decodeURIComponent ∷ Text → Text
-decodeURIComponent = pack ∘ URI.unEscapeString ∘ unpack
-
-mkHabit ∷ Text → Maybe Habit
-mkHabit t = if invalidHabit then Nothing else Just t where
-    invalidHabit = length t≡0 || length t>16 || not(Text.all (`elem` az) t)
-    az = ['a'..'z']
-
-mkDay ∷ Text → Maybe Day
-mkDay t = case Text.decimal t of
-    Left _ → Nothing
-    Right (v,_) → Just(ModifiedJulianDay v)
-
-
 decRequest ∷ W.Request → IO Req
 decRequest r = do
     let
@@ -257,18 +249,12 @@ app db webreq = do
     putStrLn $ pack $ show resp
     return $ encResponse resp
 
--- This code does no error handling. It doesn't need to be fixed right, away
--- since we'll exit the program in all the possible error situations anyways.
-getPortFromEnvironment ∷ IO Int
-getPortFromEnvironment = getEnv "PORT" >>= return ∘ read
-
 main ∷ IO()
 main = do
     let tlsOpts = W.defaultTlsSettings
-    port ← getPortFromEnvironment
+    port ← getEnv "PORT" >>= return∘read
     let warpOpts = W.setPort port W.defaultSettings
     db ← openLocalState (State Map.empty Set.empty Map.empty)
-    let getRegs = getState db >>= (\(State regs _ _) → return regs)
     finally (W.runTLS tlsOpts warpOpts $ basicAuth db $ app db) $ do
         createCheckpoint db
         closeAcidState db
