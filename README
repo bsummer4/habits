@@ -1,9 +1,5 @@
 This is a habit tracking webapp that I use as a self-improvement tool.
 
-The SSL key and certificate are stored in secret.tar.xz.aes, which can be
-    extracted with
-        openssl aes-256-cbc -d <secret.tar.xz.aes | unxz | tar t
-
 # Issues
 TODO Make endpoints use usernames.
 TODO Show all chains upto today for successful habits.
