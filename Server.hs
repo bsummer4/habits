@@ -6,8 +6,10 @@ import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
 import Data.SafeCopy
+import Prelude (read)
 import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
+import System.Environment (getEnv)
 import qualified Network.URI as URI
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
@@ -259,11 +261,16 @@ app db webreq = do
     putStrLn $ pack $ show resp
     return $ encResponse resp
 
+-- This code does no error handling. It doesn't need to be fixed right, away
+-- since we'll exit the program in all the possible error situations anyways.
+getPortFromEnvironment ∷ IO Int
+getPortFromEnvironment = getEnv "PORT" >>= return ∘ read
 
 main ∷ IO()
 main = do
+    port ← getPortFromEnvironment
     db ← openLocalState (State Map.empty Set.empty Map.empty)
     let getRegs = getState db >>= (\(State regs _ _) → return regs)
-    finally (W.run 8080 $ basicAuth db $ app db) $ do
+    finally (W.run port $ basicAuth db $ app db) $ do
         createCheckpoint db
         closeAcidState db
