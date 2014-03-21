@@ -1,3 +1,7 @@
 *.o
 *.hi
+dist
+cabal.sandbox.config
+*.swp
+.cabal-sandbox
 state
