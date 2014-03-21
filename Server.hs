@@ -14,6 +14,7 @@ import qualified Network.URI as URI
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
+import qualified Network.Wai.Handler.WarpTLS as W
 import qualified Data.Aeson as J
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -263,9 +264,11 @@ getPortFromEnvironment = getEnv "PORT" >>= return ∘ read
 
 main ∷ IO()
 main = do
+    let tlsOpts = W.defaultTlsSettings
     port ← getPortFromEnvironment
+    let warpOpts = W.setPort port W.defaultSettings
     db ← openLocalState (State Map.empty Set.empty Map.empty)
     let getRegs = getState db >>= (\(State regs _ _) → return regs)
-    finally (W.run port $ basicAuth db $ app db) $ do
+    finally (W.runTLS tlsOpts warpOpts $ basicAuth db $ app db) $ do
         createCheckpoint db
         closeAcidState db
