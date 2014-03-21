@@ -76,59 +76,45 @@ successes day (State _ habits hist) =
 failures ∷ Day → State → Set Habit
 failures day st@(State _ habits _) = habits `Set.difference` successes day st
 
-setDone ∷ Day → Habit → Bool → State → State
-setDone day habit status st@(State regs habits hist) =
-    State regs habits hist' where
-        hist' = Map.insert day daySuccesses hist
-        daySuccesses = if status
-            then Set.insert habit $ successes day st
-            else Set.delete habit $ successes day st
-
-chains ∷ Day → State → [Set Habit]
-chains day st@(State _ allHabits _) = r day allHabits where
-    r d soFar = if Set.null habits then [] else habits:yesterday where
-        yesterday = r (addDays (-1) d) habits
-        habits = soFar `Set.intersection` (successes d st)
-
 incCounts ∷ Ord k ⇒ Set k → Map k Int → Map k Int
 incCounts keys init = Set.fold iter init keys where
     iter k m = Map.alter addOne k m
     addOne n = Just $ (1∷Int)+fromMaybe 0 n
 
-chainLengths ∷ [Set Habit] → Map Habit Int
-chainLengths = List.foldl (\acc hs → incCounts hs acc) Map.empty
-
-addHabit ∷ Habit → State → State
-addHabit habit (State rs habs hist) = (State rs (Set.insert habit habs) hist)
-
-delHabit ∷ Habit → State → State
-delHabit habit (State rs habs hist) = (State rs (Set.delete habit habs) hist)
 
 
 -- [[Database]]
-addHabit_ ∷ Habit → Update State ()
-addHabit_ habit = liftQuery ask >>= put ∘ addHabit habit
+addHabitDB ∷ Habit → Update State ()
+addHabitDB habit = liftQuery ask >>= put ∘ add habit where
+    add habit (State rs habs hist) = (State rs (Set.insert habit habs) hist)
 
-delHabit_ ∷ Habit → Update State ()
-delHabit_ habit = liftQuery ask >>= put ∘ delHabit habit
+delHabitDB ∷ Habit → Update State ()
+delHabitDB habit = liftQuery ask >>= put ∘ del habit where
+    del habit (State rs habs hist) = (State rs (Set.delete habit habs) hist)
 
-setDone_ ∷ Day → Habit → Bool → Update State ()
-setDone_ day habit status = liftQuery ask >>= put ∘ setDone day habit status
+setDoneDB ∷ Day → Habit → Bool → Update State ()
+setDoneDB day habit status = liftQuery ask >>= put∘set day habit status where
+    set day habit status st@(State regs habits hist) =
+        State regs habits hist' where
+            hist' = Map.insert day daySuccesses hist
+            daySuccesses = if status
+                then Set.insert habit $ successes day st
+                else Set.delete habit $ successes day st
 
-queryState ∷ Query State State
-queryState = ask
+queryStateDB ∷ Query State State
+queryStateDB = ask
 
-registerUser ∷ User → Password → Update State ()
-registerUser u p = do
+registerUserDB ∷ User → Password → Update State ()
+registerUserDB u p = do
     (State registrations hab hist) ← liftQuery ask
     let newregs = Map.insert u p registrations
     put $ State newregs hab hist
 
 $(makeAcidic ''State
-    ['queryState, 'addHabit_, 'setDone_, 'delHabit_, 'registerUser])
+    ['queryStateDB, 'addHabitDB, 'setDoneDB, 'delHabitDB, 'registerUserDB])
 
 getState ∷ AcidState State → IO State
-getState db = query db QueryState
+getState db = query db QueryStateDB
 
 
 -- [[Authentication Stuff]]
@@ -182,11 +168,20 @@ basicAuth db waiapp req = do
         Anon → return $ W.responseLBS W.status401 [("www-authenticate","Basic")] ""
         Malformed → authFailed
         AuthAttempt _ u p → case Map.lookup u users of
-            Nothing → update db (RegisterUser u p) >> waiapp req
+            Nothing → update db (RegisterUserDB u p) >> waiapp req
             Just(password) → if password≡p then waiapp req else
                 return $ W.responseLBS W.status400 [] ""
 
 -- [[Application Logic]]
+chains ∷ Day → State → [Set Habit]
+chains day st@(State _ allHabits _) = r day allHabits where
+    r d soFar = if Set.null habits then [] else habits:yesterday where
+        yesterday = r (addDays (-1) d) habits
+        habits = soFar `Set.intersection` (successes d st)
+
+chainLengths ∷ [Set Habit] → Map Habit Int
+chainLengths = List.foldl (\acc hs → incCounts hs acc) Map.empty
+
 respond ∷ AcidState State → Req → IO Resp
 respond db req = case req of
     BadReq → return NotOk
@@ -194,9 +189,9 @@ respond db req = case req of
     ListHabits → getState db >>= (\(State _ habits _)→return $ Habits habits)
     GetFailures date → getState db >>= return ∘ Habits ∘ failures date
     GetSuccesses date → getState db >>= return ∘ Habits ∘ successes date
-    AddHabit habit → update db (AddHabit_ habit) >> return Ok
-    DelHabit habit → update db (DelHabit_ habit) >> return Ok
-    SetDone date habit stat → update db (SetDone_ date habit stat) >> return Ok
+    AddHabit habit → update db (AddHabitDB habit) >> return Ok
+    DelHabit habit → update db (DelHabitDB habit) >> return Ok
+    SetDone date habit stat → update db (SetDoneDB date habit stat) >> return Ok
     GetChains day → getState db >>= return ∘ Chains ∘ chainLengths ∘ chains day
 
 
