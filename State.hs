@@ -3,10 +3,15 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 
 module State
-  ( User, Password, Habit, HabitStatus, NoteStatus, State()
-  , textHabit, habitText, userText, textUser
-  , Register, UserPassword, UserHabits, AddHabit, DelHabit, Chains, HabitsStatus
-  , SetHabitStatus
+  ( User, Password, Habit, State
+  , NoteStatus
+  , HabitStatus(Success, Failure, Unspecified)
+  , textHabit, habitText, userText, textUser, textPassword
+  , isSuccess, emptyState, isan
+  , Register(Register), UserPassword(UserPassword)
+  , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
+  , Chains(Chains), HabitsStatus(HabitsStatus)
+  , SetHabitStatus(SetHabitStatus)
   ) where
 
 import ClassyPrelude
@@ -63,6 +68,12 @@ $(deriveSafeCopy 3 'base ''State)
 
 
 -- [[Smart Constructors]]
+emptyState ∷ State
+emptyState = State Map.empty
+
+isan ∷ User
+isan = User "isan"
+
 textHabit ∷ Text → Maybe Habit
 textHabit t = if invalidHabit then Nothing else Just $ Habit t where
   invalidHabit = length t≡0 || length t>16 || not(Text.all (`elem` az) t)
@@ -84,6 +95,9 @@ userText (User name) = name
 
 textUser ∷ Text → Maybe User
 textUser t = if validUsername t then Just $ User t else Nothing
+
+textPassword ∷ Text → Password
+textPassword = Password
 
 
 -- [[Utility Functions]]

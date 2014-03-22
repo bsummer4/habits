@@ -1,14 +1,11 @@
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
-{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables #-}
+{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 
 import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
-import Data.SafeCopy
 import Prelude (read)
-import Control.Monad.State (put)
-import Control.Monad.Reader (ask)
 import System.Environment (getEnv)
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
@@ -20,114 +17,24 @@ import qualified Data.Set as Set
 import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Text.Read as Text
-import Data.Time.Calendar
 import qualified Data.ByteString.Base64 as Base64
+import qualified State as DB
 
-
--- [[Datatypes]]
-data AuthParse = Anon | Malformed | AuthAttempt Text User Password
-type Registrations = Map User Password
-data User = User Text deriving (Eq, Ord, Show, Typeable)
-type Password = Text
-type Habit = Text
-type History = Map Day (Set Habit)
-data State = State Registrations (Set Habit) History deriving Typeable
-
-data StateV1 = StateV1 (Set Habit) History deriving Typeable
-instance Migrate State where
-    type MigrateFrom State = StateV1
-    migrate (StateV1 habits hist) = State Map.empty habits hist
-
-$(deriveSafeCopy 0 'base ''User)
-$(deriveSafeCopy 1 'base ''StateV1)
-$(deriveSafeCopy 2 'extension ''State)
-
+data AuthParse = Anon | Malformed | AuthAttempt Text DB.User DB.Password
 data Resp
-    = NotOk | Ok | ServeClient | Habits (Set Habit) | Chains (Map Habit Int)
-    deriving Show
+    = NotOk | Ok | ServeClient | Habits (Set DB.Habit) | Chains (Map DB.Habit Int)
 
 data Req
     = BadReq | WebClient
     | GetSuccesses Day | GetFailures Day
-    | GetChains Day | SetDone Day Habit Bool
-    | AddHabit Habit | DelHabit Habit | ListHabits
-    deriving Show
+    | GetChains Day | SetDone Day DB.Habit Bool
+    | AddHabit DB.Habit | DelHabit DB.Habit | ListHabits
 
-mkHabit ∷ Text → Maybe Habit
-mkHabit t = if invalidHabit then Nothing else Just t where
-    invalidHabit = length t≡0 || length t>16 || not(Text.all (`elem` az) t)
-    az = ['a'..'z']
-
-mkDay ∷ Text → Maybe Day
-mkDay t = case Text.decimal t of
-    Left _ → Nothing
-    Right (v,_) → Just(ModifiedJulianDay v)
-
-validUsername ∷ Text → Bool
-validUsername t = lenOK && okCharset where
-    lenOK = length t≤50 && length t>0
-    (az,az09) = (['a'..'z']++['A'..'Z'], az++['0'..'9'])
-    okCharset = case Text.uncons t of
-        Nothing → False
-        Just(h,tail) → h `elem` az && Text.all (`elem` az09) tail
-
-username ∷ User → Text
-username (User name) = name
-
-userFromName ∷ Text → Maybe User
-userFromName t = if validUsername t then Just $ User t else Nothing
+deriving instance Show Resp
+deriving instance Show Req
 
 
--- [[Habit Management]]
-successes ∷ Day → State → Set Habit
-successes day (State _ habits hist) =
-    habits `Set.intersection` fromMaybe Set.empty(Map.lookup day hist)
-
-failures ∷ Day → State → Set Habit
-failures day st@(State _ habits _) = habits `Set.difference` successes day st
-
-incCounts ∷ Ord k ⇒ Set k → Map k Int → Map k Int
-incCounts keys init = Set.fold iter init keys where
-    iter k m = Map.alter addOne k m
-    addOne n = Just $ (1∷Int)+fromMaybe 0 n
-
-
-
--- [[Database]]
-addHabitDB ∷ Habit → Update State ()
-addHabitDB habit = liftQuery ask >>= put ∘ add where
-    add (State rs habits hist) = (State rs (Set.insert habit habits) hist)
-
-delHabitDB ∷ Habit → Update State ()
-delHabitDB habit = liftQuery ask >>= put ∘ del where
-    del (State rs habits hist) = (State rs (Set.delete habit habits) hist)
-
-setDoneDB ∷ Day → Habit → Bool → Update State ()
-setDoneDB day habit status = liftQuery ask >>= put∘set where
-    set st@(State regs habits hist) =
-        State regs habits hist' where
-            hist' = Map.insert day daySuccesses hist
-            daySuccesses = if status
-                then Set.insert habit $ successes day st
-                else Set.delete habit $ successes day st
-
-queryStateDB ∷ Query State State
-queryStateDB = ask
-
-registerUserDB ∷ User → Password → Update State ()
-registerUserDB u p = do
-    (State registrations hab hist) ← liftQuery ask
-    let newregs = Map.insert u p registrations
-    put $ State newregs hab hist
-
-$(makeAcidic ''State
-    ['queryStateDB, 'addHabitDB, 'setDoneDB, 'delHabitDB, 'registerUserDB])
-
-getState ∷ AcidState State → IO State
-getState db = query db QueryStateDB
-
-
--- [[Authentication Stuff]]
+-- [[Authentication]]
 userPassFromBasicAuthString ∷ Text → Maybe (Text,Text)
 userPassFromBasicAuthString s = case Base64.decode $ encodeUtf8 s of
     Left _ → Nothing
@@ -155,9 +62,9 @@ authAttempt ∷ W.Request → AuthParse
 authAttempt req = f where
     hdrs = W.requestHeaders req
     parse a b = case (parseWWWAuthenticate a, parseAuthorization b) of
-        (Just aRealm, Just(uname,p)) → case userFromName uname of
+        (Just aRealm, Just(uname,p)) → case DB.textUser uname of
             Nothing → Malformed
-            Just u → AuthAttempt aRealm u p
+            Just u → AuthAttempt aRealm u (DB.textPassword p)
         _ → Malformed
     f = case (lookup "WWW-Authenticate" hdrs, lookup "Authorization" hdrs) of
         (Nothing, Just b) → parse "Basic realm=\"api\"" b
@@ -167,42 +74,25 @@ authAttempt req = f where
 
 -- This rejects requests with invalid credentials. Any requests that pass
 -- through this filter will either have no credentials or correct credentials.
-basicAuth ∷ AcidState State → W.Application → W.Application
+basicAuth ∷ AcidState DB.State → W.Application → W.Application
 basicAuth db waiapp req = do
-    (State users _ _) ← getState db
-    putStrLn $ Text.pack $ show users
     case authAttempt req of
         Anon → return $ W.responseLBS W.status401 [("www-authenticate","Basic")] ""
         Malformed → return $ W.responseLBS W.status403 [] ""
-        AuthAttempt _ u p → case Map.lookup u users of
-            Nothing → update db (RegisterUserDB u p) >> waiapp req
-            Just(password) → if password≡p then waiapp req else
-                return $ W.responseLBS W.status400 [] ""
-
--- [[Application Logic]]
-chains ∷ Day → State → [Set Habit]
-chains day st@(State _ allHabits _) = r day allHabits where
-    r d soFar = if Set.null habits then [] else habits:yesterday where
-        yesterday = r (addDays (-1) d) habits
-        habits = soFar `Set.intersection` (successes d st)
-
-chainLengths ∷ [Set Habit] → Map Habit Int
-chainLengths = List.foldl (\acc hs → incCounts hs acc) Map.empty
-
-respond ∷ AcidState State → Req → IO Resp
-respond db req = case req of
-    BadReq → return NotOk
-    WebClient → return ServeClient
-    ListHabits → getState db >>= (\(State _ habits _)→return $ Habits habits)
-    GetFailures date → getState db >>= return ∘ Habits ∘ failures date
-    GetSuccesses date → getState db >>= return ∘ Habits ∘ successes date
-    AddHabit habit → update db (AddHabitDB habit) >> return Ok
-    DelHabit habit → update db (DelHabitDB habit) >> return Ok
-    SetDone date habit stat → update db (SetDoneDB date habit stat) >> return Ok
-    GetChains day → getState db >>= return ∘ Chains ∘ chainLengths ∘ chains day
+        AuthAttempt _ u p → do
+            currentPass ← query db (DB.UserPassword u)
+            case currentPass of
+                Nothing → update db (DB.Register u p) >> waiapp req
+                Just cp → if cp≡p then waiapp req else
+                    return $ W.responseLBS W.status400 [] ""
 
 
 -- [[HTTP Requests and Responses]]
+mkDay ∷ Text → Maybe Day
+mkDay t = case Text.decimal t of
+    Left _ → Nothing
+    Right (v,_) → Just(ModifiedJulianDay v)
+
 decRequest ∷ W.Request → IO Req
 decRequest r = do
     let
@@ -213,12 +103,12 @@ decRequest r = do
             (Just d, Just "False") → GetFailures d
             _ → BadReq
         done habstr daystr status =
-            case (join(fmap day daystr), mkHabit habstr, status) of
+            case (join(fmap day daystr), DB.textHabit habstr, status) of
                 (Just d, Just h, Just "True") → SetDone d h True
                 (Just d, Just h, Just "False") → SetDone d h False
                 _ → BadReq
-        hAddHabit habit = orReject $ fmap AddHabit $ mkHabit habit
-        hDelHabit habit = orReject $ fmap DelHabit $ mkHabit habit
+        hAddHabit habit = orReject $ fmap AddHabit $ DB.textHabit habit
+        hDelHabit habit = orReject $ fmap DelHabit $ DB.textHabit habit
         hChains d = orReject $ fmap GetChains $ join $ fmap day d
     return $ case(W.pathInfo r, W.requestMethod r, List.sort$W.queryString r) of
         ([],"GET",[]) → WebClient
@@ -235,12 +125,37 @@ encResponse resp = r resp where
     r NotOk = W.responseLBS W.status404 [] ""
     r Ok = W.responseLBS W.status204 [] ""
     r ServeClient = W.responseFile W.status200 html "./index.html" Nothing
-    r (Habits habits) = (W.responseLBS W.status200 json $ J.encode habits)
-    r (Chains cs) = (W.responseLBS W.status200 json $ J.encode cs)
+    r (Habits habits) = (W.responseLBS W.status200 json $ J.encode $ Set.map DB.habitText habits)
+    r (Chains cs) = W.responseLBS W.status200 json $ J.encode $ Map.mapKeys DB.habitText cs
     html = [("Content-Type", "text/html")]
     json = [("Content-Type", "application/javascript")]
 
-app ∷ AcidState State → W.Request → IO W.Response
+failures ∷ Map DB.Habit DB.HabitStatus → Resp
+failures = Habits ∘ Set.fromList ∘ Map.keys ∘ Map.filter (not ∘ DB.isSuccess)
+
+successes ∷ Map DB.Habit DB.HabitStatus → Resp
+successes = Habits ∘ Set.fromList ∘ Map.keys ∘ Map.filter DB.isSuccess
+
+
+-- [[Application Logic]]
+orFail ∷ (a → Resp) → Maybe a → Resp
+orFail c (Just a) = c a
+orFail _ Nothing = NotOk
+
+respond ∷ AcidState DB.State → Req → IO Resp
+respond db req = case req of
+    BadReq → return NotOk
+    WebClient → return ServeClient
+    ListHabits → query db (DB.UserHabits DB.isan) >>= return ∘ orFail Habits
+    GetFailures day → query db (DB.HabitsStatus DB.isan day) >>= return ∘ orFail failures
+    GetSuccesses day → query db (DB.HabitsStatus DB.isan day) >>= return ∘ orFail successes
+    AddHabit habit → update db (DB.AddHabit DB.isan habit) >> return Ok
+    DelHabit habit → update db (DB.DelHabit DB.isan habit) >> return Ok
+    SetDone day habit True → (update db $ DB.SetHabitStatus DB.isan day habit $ DB.Success Nothing) >> return Ok
+    SetDone day habit False → (update db $ DB.SetHabitStatus DB.isan day habit $ DB.Failure Nothing) >> return Ok
+    GetChains day → query db (DB.Chains DB.isan day) >>= return ∘ orFail Chains
+
+app ∷ AcidState DB.State → W.Request → IO W.Response
 app db webreq = do
     req ← decRequest webreq
     putStrLn "=========="
@@ -254,7 +169,7 @@ main = do
     let tlsOpts = W.defaultTlsSettings
     port ← getEnv "PORT" >>= return∘read
     let warpOpts = W.setPort port W.defaultSettings
-    db ← openLocalState (State Map.empty Set.empty Map.empty)
+    db ← openLocalState DB.emptyState
     finally (W.runTLS tlsOpts warpOpts $ basicAuth db $ app db) $ do
         createCheckpoint db
         closeAcidState db
