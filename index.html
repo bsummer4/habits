@@ -1,131 +1,149 @@
 <html><head><style>
-    span.refutable {
-        border-width:1; border-style:solid;
-        padding:2px; margin:1px; display:inline-block; }
-    span.datechange { forground-color:blue; text-decoration:underline; }
-    span.success { background-color:#88ff88; border-color:#228822; }
-    span.failure { background-color:#ff8888; border-color:#882222; }
-    span.notapplicable { background-color:yellow; border-color:darkyellow; }
-    span.refutable:hover { background-color:yellow; }
-    div.toplevel { max-width:400px; }
-    h1.header { text-align:center; }
+  span.refutable {
+    border-width:1; border-style:solid;
+    padding:2px; margin:1px; display:inline-block; }
+  span.datechange { forground-color:blue; text-decoration:underline; }
+  span.success { background-color:#88ff88; border-color:#228822; }
+  span.failure { background-color:#ff8888; border-color:#882222; }
+  span.notapplicable { background-color:yellow; border-color:darkyellow; }
+  span.refutable:hover { background-color:yellow; }
+  div.toplevel { max-width:400px; }
+  h1.header { text-align:center; }
 </style></head><body>
 
 <div class="toplevel">
-    <ul id="notices"></ul>
-    <br><br>
-    <ul id="habitList"></ul>
-    </div>
+  <ul id="notices"></ul>
+  <br><br>
+  <ul id="habitList"></ul>
+  </div>
 
 <script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
 <script>
 Date.prototype.modifiedJulianDay = function() {
-    return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
+  return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
 
 var julian = function(d) { return d.modifiedJulianDay(); }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
 var day = julian(new Date());
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont(); });}
+var member = function(i,a) { return !(-1 === a.indexOf(i)); }
 var habitDOM = function(name, status, callback) {
-    var result = $("<span>");
-    result.addClass("refutable")
-    result.text(name);
-    result.click(callback);
-    if (status) result.addClass(status);
-    return result; }
-
-var addHabitHandler = function(x) {
-    var hab = document.getElementById("habit").value;
-    addHabit(hab, update)(); }
-
-var trace = function(x) { console.log(x); return x; }
-var json = function(s) {
-    if (s) {return JSON.parse(s); }
-    else {return {}}; }
-
-var delHabit = function(habit,cont) {
-    return (function () {
-        $.ajax({ type: "DELETE", url: "/api/habits/" + habit })
-            .done(function() { cont({}); }); }); }
+  var result = $("<span>");
+  result.addClass("refutable")
+  result.text(name);
+  result.click(callback);
+  if (status) result.addClass(status);
+  return result; }
 
 var addHabit = function(habit, cont) {
-    return (function () {
-        $.ajax({ type: "PUT", url: "/api/habits/" + habit })
-            .done(function() { cont({}); }); }); }
+  var body = {AddHabit:[["isan","pass"],"isan",habit]};
+  rpc(body,cont); }
+
+var addHabitHandler = function() {
+  var hab = document.getElementById("habit").value;
+  addHabit(hab, update)(); }
+
+var trace = function(x) { console.log(x); return x; }
+var toJSON = function(s) { return JSON.stringify(s); }
+
+var json = function(s) {
+  if (s) {return JSON.parse(s); }
+  else {return {}}; }
+
+var rpc = function (obj,cont) {
+  var opts = {
+    type:"PUT", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
+  $.ajax(opts).success(function(s) { cont(s); }); }
+
+var delHabit = function(habit,cont) {
+  return function() {
+    var body = {DelHabit:[["isan","pass"],"isan",habit]}
+    rpc(body,cont); }}
 
 var allHabits = function(cont) {
-    $.ajax({ type: "LIST", url: "/api/habits" })
-        .done(function(habitsStr) { cont(json(habitsStr)); }); }
+  body = {ListHabits: [["isan","pass"],"isan"]};
+  console.log(body);
+  console.log(cont);
+  console.log(toJSON(body));
+  rpc(body,cont); }
 
-var successes = function(day, cont) {
-    $.ajax({ type: "GET", url: "/api/habits/done?status=True&day=" + day })
-        .done(function(habitsStr) { cont(json(habitsStr)); }) }
+var successSetFromAllHabits = function(habitSet, response) {
+  var result = [];
+  statuses = response["STATUSES"]
+  console.log(toJSON(habitSet));
+  console.log(toJSON(response));
+  for (habitName in statuses) {
+    if ("Success" in statuses[habitName] && member(habitName,habitSet)) {
+      result.push(habitName); }}
+  console.log(toJSON(result));
+  return result; }
+
+var successes = function(habitSet, day, cont) {
+  body = {"GetHabitsStatus": [["isan","pass"],"isan",day]}
+  rpc(body,function(r){ cont(successSetFromAllHabits(habitSet, r)); }); }
 
 var calcFailures = function(habitSet, successSet) {
-    var result = [];
-    for (i in habitSet) {
-        if (-1 === successSet.indexOf(habitSet[i])){ result.push(habitSet[i]); }}
-    return result; }
+  var result = [];
+  for (i in habitSet) {
+    if (-1 === successSet.indexOf(habitSet[i])){ result.push(habitSet[i]); }}
+  return result; }
 
 var update = function() {
-    allHabits(function(habitSet) {
-        successes(day, function(successSet) {
-            var failureSet = calcFailures(habitSet,successSet);
-            writeDOM(habitSet, successSet, failureSet); }); }); }
+  allHabits(function(response) {
+    var habitSet = response["HABITS"]
+    successes(habitSet, day, function(successSet) {
+      var failureSet = calcFailures(habitSet,successSet);
+      writeDOM(habitSet, successSet, failureSet); }); }); }
 
 var setDone = function(day, habit, status, cont) {
-    var statusstr = "True";
-    if (true!==status) { statusstr = "False"; }
-    return function() {
-        $.ajax({
-            type: "POST",
-            url: ("/api/habits/"+habit+"/done?day="+day+"&status="+statusstr),
-            success: function(d){ cont({}); }})}; }
+  var status = status ? {"Success":null} : {"Failure":null};
+  body = {"SetHabitsStatus":[["isan","pass"],"isan",day,habit,status]};
+  return (function() { rpc(body, cont); }); }
 
 var writeDOM = function(habitSet, successSet, failureSet) {
-    var node = $("#notices");
-    node.empty()
+  var node = $("#notices");
+  node.empty()
 
-    var hdr = $("<h1>");
-    hdr.addClass("header")
-    var back = $("<span>&lt;&lt;</span>");
-    var forward = $("<span>&gt;&gt;</span>");
-    back.addClass("datechange");
-    forward.addClass("datechange");
-    back.click(shiftDate(-1, update));
-    forward.click(shiftDate(1, update));
-    hdr.append(back);
-    var d = fromJulian(day)
-    hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ");
-    hdr.append(forward);
+  var hdr = $("<h1>");
+  hdr.addClass("header")
+  var back = $("<span>&lt;&lt;</span>");
+  var forward = $("<span>&gt;&gt;</span>");
+  back.addClass("datechange");
+  forward.addClass("datechange");
+  back.click(shiftDate(-1, update));
+  forward.click(shiftDate(1, update));
+  hdr.append(back);
+  var d = fromJulian(day)
+  hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ");
+  hdr.append(forward);
 
-    var habitList = $("<p>");
-    successSet.sort(); failureSet.sort();
-    for (var i=0,j=0;;) {
-        if (i>=successSet.length && j>=failureSet.length) break;
-        // habitList.append(" ");
-        if (j >= failureSet.length || successSet[i] <= failureSet[j]) {
-            var n = successSet[i++];
-            habitList.append(habitDOM(n, "success", setDone(day,n,false,update))); }
-        else if (i >= successSet.length || successSet[i] > failureSet[j]) {
-            var n = failureSet[j++];
-            habitList.append(habitDOM(n, "failure", setDone(day,n,true,update))); }
-        else { break; }}
+  var habitList = $("<p>");
+  successSet.sort(); failureSet.sort();
+  for (var i=0,j=0;;) {
+    if (i>=successSet.length && j>=failureSet.length) break;
+    // habitList.append(" ");
+    if (j >= failureSet.length || successSet[i] <= failureSet[j]) {
+      var n = successSet[i++];
+      habitList.append(habitDOM(n, "success", setDone(day,n,false,update))); }
+    else if (i >= successSet.length || successSet[i] > failureSet[j]) {
+      var n = failureSet[j++];
+      habitList.append(habitDOM(n, "failure", setDone(day,n,true,update))); }
+    else { break; }}
 
-    var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
-    var allHabits = $("<p>");
-    for (var i in habitSet) {
-        // allHabits.append(" ");
-        allHabits.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
-    // allHabits.append(" ");
-    allHabits.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
-    allHabitsForm.append(allHabits);
+  var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
+  var allHabitsP = $("<p>");
+  for (var i in habitSet) {
+    // allHabitsP.append(" ");
+    allHabitsP.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
+  // allHabitsP.append(" ");
+  allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
+  allHabitsForm.append(allHabitsP);
 
-    node.append(hdr);
-    node.append(habitList);
-    node.append($("<br><br>"));
-    node.append(allHabitsForm); }
+  node.append(hdr);
+  node.append(habitList);
+  node.append($("<br><br>"));
+  node.append(allHabitsForm); }
 
 update();
 

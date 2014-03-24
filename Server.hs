@@ -1,90 +1,70 @@
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
 import Prelude (read)
 import System.Environment (getEnv)
+import Control.Monad
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
 import qualified Network.Wai.Handler.WarpTLS as W
 import qualified Data.Aeson as J
+import qualified Data.Aeson.TH as J
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import qualified Data.List as List
-import qualified Data.Text as Text
 import qualified Data.Text.Read as Text
-import qualified Data.ByteString.Base64 as Base64
 import qualified State as DB
+import qualified Data.ByteString.Lazy.Char8 as ASCII
 
-data AuthParse = Anon | Malformed | AuthAttempt Text DB.User DB.Password
+data Tok = Tok DB.User DB.Password
 data Resp
-  = NotOk | Ok | ServeClient | Habits (Set DB.Habit) | Chains (Map DB.Habit Int)
+  = OK
+  | MALFORMED_REQUEST
+  | NOT_FOUND
+  | USER_ALREADY_EXISTS
+  | AUTH Tok
+  | STATUSES (Map DB.Habit DB.HabitStatus)
+  | HABITS (Set DB.Habit)
+  | CHAINS (Map DB.Habit Int)
 
 data Req
-  = BadReq | WebClient
-  | GetSuccesses Day | GetFailures Day
-  | GetChains Day | SetDone Day DB.Habit Bool
-  | AddHabit DB.Habit | DelHabit DB.Habit | ListHabits
+  = Register DB.User DB.Password
+  | GetHabitsStatus Tok DB.User Day
+  | SetHabitsStatus Tok DB.User Day DB.Habit DB.HabitStatus
+  | GetChains Tok DB.User Day
+  | AddHabit Tok DB.User DB.Habit
+  | DelHabit Tok DB.User DB.Habit
+  | ListHabits Tok DB.User
 
+deriving instance Show Tok
 deriving instance Show Resp
 deriving instance Show Req
 
+$(J.deriveJSON J.defaultOptions ''Tok)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Req)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Resp)
 
--- [[Authentication]]
-userPassFromBasicAuthString ∷ Text → Maybe (Text,Text)
-userPassFromBasicAuthString s = case Base64.decode $ encodeUtf8 s of
-  Left _ → Nothing
-  Right pair → case Text.breakOn ":" $ decodeUtf8 pair of
-    (_,"") → Nothing
-    (user,colonPass) → Just (user, Text.tail colonPass)
+instance J.ToJSON Day where
+  toJSON (ModifiedJulianDay x) = J.toJSON x
 
-unPrefix ∷ Text → Text → Maybe Text
-unPrefix prefix str = case Text.splitAt (length prefix) str of
-  (strHead, strTail) → if strHead≠prefix then Nothing else Just strTail
+instance J.FromJSON Day where
+  parseJSON x = J.parseJSON x >>= return∘ModifiedJulianDay
 
-parseAuthorization ∷ ByteString → Maybe (Text,Text)
-parseAuthorization =
-  join∘fmap userPassFromBasicAuthString∘unPrefix "Basic "∘decodeUtf8
+instance J.ToJSON α ⇒ J.ToJSON (Map DB.Habit α) where
+  toJSON x = J.toJSON $ Map.mapKeys DB.habitText x
 
-parseWWWAuthenticate ∷ ByteString → Maybe Text
-parseWWWAuthenticate s = case unPrefix "Basic realm=\"" $ decodeUtf8 s of
-  Nothing → Nothing
-  Just "" → Nothing
-  Just(shit∷Text) → case Text.splitAt (length shit-1) shit of
-    (r,"\"") → Just r
-    _ → Nothing
-
-authAttempt ∷ W.Request → AuthParse
-authAttempt req = f where
-  hdrs = W.requestHeaders req
-  parse a b = case (parseWWWAuthenticate a, parseAuthorization b) of
-    (Just aRealm, Just(uname,p)) → case DB.textUser uname of
-      Nothing → Malformed
-      Just u → AuthAttempt aRealm u (DB.textPassword p)
-    _ → Malformed
-  f = case (lookup "WWW-Authenticate" hdrs, lookup "Authorization" hdrs) of
-    (Nothing, Just b) → parse "Basic realm=\"api\"" b
-    (Nothing, Nothing) → Anon
-    (Just a, Just b) → parse a b
-    _ → Malformed
-
--- This rejects requests with invalid credentials. Any requests that pass
--- through this filter will either have no credentials or correct credentials.
-basicAuth ∷ AcidState DB.State → W.Application → W.Application
-basicAuth db waiapp req = do
-  case authAttempt req of
-    Anon → return $ W.responseLBS W.status401 [("www-authenticate","Basic")] ""
-    Malformed → return $ W.responseLBS W.status403 [] ""
-    AuthAttempt _ u p → do
-      currentPass ← query db (DB.UserPassword u)
-      case currentPass of
-        Nothing → update db (DB.Register u p) >> waiapp req
-        Just cp → if cp≡p then waiapp req else
-          return $ W.responseLBS W.status400 [] ""
+instance J.FromJSON α ⇒ J.FromJSON (Map DB.Habit α) where
+  parseJSON o = do
+    x ∷ Map Text α ← J.parseJSON o
+    let mb (mk,v) = case mk of {Nothing→Nothing; Just k→Just(k,v)}
+    case sequence $ map mb $ Map.toList $ Map.mapKeys DB.textHabit x of
+      Nothing → mzero
+      Just kvs → return $ Map.fromList kvs
 
 
 -- [[HTTP Requests and Responses]]
@@ -93,76 +73,57 @@ mkDay t = case Text.decimal t of
   Left _ → Nothing
   Right (v,_) → Just(ModifiedJulianDay v)
 
-decRequest ∷ W.Request → IO Req
-decRequest r = do
-  let
-    orReject = fromMaybe BadReq
-    day = mkDay ∘ decodeUtf8
-    dayQuery daystr status = case (join(fmap day daystr), status) of
-      (Just d, Just "True") → GetSuccesses d
-      (Just d, Just "False") → GetFailures d
-      _ → BadReq
-    done habstr daystr status =
-      case (join(fmap day daystr), DB.textHabit habstr, status) of
-        (Just d, Just h, Just "True") → SetDone d h True
-        (Just d, Just h, Just "False") → SetDone d h False
-        _ → BadReq
-    hAddHabit habit = orReject $ fmap AddHabit $ DB.textHabit habit
-    hDelHabit habit = orReject $ fmap DelHabit $ DB.textHabit habit
-    hChains d = orReject $ fmap GetChains $ join $ fmap day d
-  return $ case(W.pathInfo r, W.requestMethod r, List.sort$W.queryString r) of
-    ([],"GET",[]) → WebClient
-    (["api","chains"],"GET",[("upto",d)]) → hChains d
-    (["api","habits"],"LIST",[]) → ListHabits
-    (["api","habits",h],"PUT",[]) → hAddHabit h
-    (["api","habits",h],"DELETE",[]) → hDelHabit h
-    (["api","habits","done"],"GET",[("day",d),("status",s)]) → dayQuery d s
-    (["api","habits",h,"done"],"POST",[("day",d),("status",s)]) → done h d s
-    _ → BadReq
-
-encResponse ∷ Resp → W.Response
-encResponse resp = r resp where
-  r NotOk = W.responseLBS W.status404 [] ""
-  r Ok = W.responseLBS W.status204 [] ""
-  r ServeClient = W.responseFile W.status200 html "./index.html" Nothing
-  r (Habits habits) = (W.responseLBS W.status200 json $ J.encode $ Set.map DB.habitText habits)
-  r (Chains cs) = W.responseLBS W.status200 json $ J.encode $ Map.mapKeys DB.habitText cs
-  html = [("Content-Type", "text/html")]
-  json = [("Content-Type", "application/javascript")]
-
-failures ∷ Map DB.Habit DB.HabitStatus → Resp
-failures = Habits ∘ Set.fromList ∘ Map.keys ∘ Map.filter (not ∘ DB.isSuccess)
-
-successes ∷ Map DB.Habit DB.HabitStatus → Resp
-successes = Habits ∘ Set.fromList ∘ Map.keys ∘ Map.filter DB.isSuccess
-
 
 -- [[Application Logic]]
-orFail ∷ (a → Resp) → Maybe a → Resp
-orFail c (Just a) = c a
-orFail _ Nothing = NotOk
-
 respond ∷ AcidState DB.State → Req → IO Resp
 respond db req = case req of
-  BadReq → return NotOk
-  WebClient → return ServeClient
-  ListHabits → query db (DB.UserHabits DB.isan) >>= return ∘ orFail Habits
-  GetFailures day → query db (DB.HabitsStatus DB.isan day) >>= return ∘ orFail failures
-  GetSuccesses day → query db (DB.HabitsStatus DB.isan day) >>= return ∘ orFail successes
-  AddHabit habit → update db (DB.AddHabit DB.isan habit) >> return Ok
-  DelHabit habit → update db (DB.DelHabit DB.isan habit) >> return Ok
-  SetDone day habit True → (update db $ DB.SetHabitStatus DB.isan day habit $ DB.Success Nothing) >> return Ok
-  SetDone day habit False → (update db $ DB.SetHabitStatus DB.isan day habit $ DB.Failure Nothing) >> return Ok
-  GetChains day → query db (DB.Chains DB.isan day) >>= return ∘ orFail Chains
+  Register user pass → do
+    didIt ← update db (DB.Register user pass)
+    return $ case didIt of
+      False → USER_ALREADY_EXISTS
+      True → AUTH $ Tok user pass
+  ListHabits _ user → do
+    mhabits ← query db $ DB.UserHabits user
+    return $ fromMaybe NOT_FOUND $ fmap HABITS $ mhabits
+  GetHabitsStatus _ user day → do
+    mstatuses ← query db $ DB.HabitsStatus user day
+    return $ fromMaybe NOT_FOUND $ fmap STATUSES $ mstatuses
+  GetChains _ user day → do
+    mchains ← query db (DB.Chains user day)
+    return $ fromMaybe NOT_FOUND $ fmap CHAINS $ mchains
+  AddHabit _ user habit → do
+    _ ← update db (DB.AddHabit user habit)
+    return OK
+  DelHabit _ user habit → do
+    _ ← update db (DB.DelHabit user habit)
+    return OK
+  SetHabitsStatus _ user day habit status → do
+    _ ← update db $ DB.SetHabitStatus user day habit status
+    return OK
 
 app ∷ AcidState DB.State → W.Request → IO W.Response
-app db webreq = do
-  req ← decRequest webreq
-  putStrLn "=========="
-  putStrLn $ pack $ show req
-  resp ← respond db req
-  putStrLn $ pack $ show resp
-  return $ encResponse resp
+app db webreq = case W.requestMethod webreq of
+  "GET" → return $ W.responseFile W.status200 html "./index.html" Nothing
+    where html = [("Content-Type", "text/html")]
+  _ → do
+    ClassyPrelude.mapM_ (ASCII.putStrLn ∘ J.encode) [lh,ghs,shs]
+    body ← W.lazyRequestBody webreq
+    ASCII.putStrLn body
+    resp ← case J.decode body of
+      Nothing → return MALFORMED_REQUEST
+      Just req →
+        putStrLn "==========" >> (putStrLn $ pack $ show req) >> respond db req
+    ASCII.putStrLn $ J.encode resp
+    let json = [("Content-Type", "application/javascript")]
+    return $ W.responseLBS W.status200 json $ J.encode resp where
+
+Just isan = DB.textUser "isan"
+pw = DB.textPassword "pw"
+Just today = mkDay "34987234"
+Just hab = DB.textHabit "pizza"
+shs = SetHabitsStatus (Tok isan pw) isan today hab (DB.Success Nothing)
+ghs = GetHabitsStatus (Tok isan pw) isan today
+lh = ListHabits (Tok isan pw) isan
 
 main ∷ IO()
 main = do
@@ -170,6 +131,6 @@ main = do
   port ← getEnv "PORT" >>= return∘read
   let warpOpts = W.setPort port W.defaultSettings
   db ← openLocalState DB.emptyState
-  finally (W.runTLS tlsOpts warpOpts $ basicAuth db $ app db) $ do
+  finally (W.runTLS tlsOpts warpOpts $ app db) $ do
     createCheckpoint db
     closeAcidState db

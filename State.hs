@@ -7,7 +7,7 @@ module State
   , NoteStatus
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser, textPassword
-  , isSuccess, emptyState, isan
+  , isSuccess, emptyState
   , Register(Register), UserPassword(UserPassword)
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
@@ -25,6 +25,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Data.Time.Calendar (addDays)
+import qualified Data.Aeson as J
+import qualified Data.Aeson.TH as J
 
 
 -- [[Datatypes]]
@@ -66,13 +68,18 @@ $(deriveSafeCopy 0 'base ''UserState)
 $(deriveSafeCopy 0 'base ''DayState)
 $(deriveSafeCopy 3 'base ''State)
 
+$(J.deriveJSON J.defaultOptions ''Habit)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
+$(J.deriveJSON J.defaultOptions ''Password)
+$(J.deriveJSON J.defaultOptions ''User)
+
 
 -- [[Smart Constructors]]
 emptyState ∷ State
 emptyState = State Map.empty
 
-isan ∷ User
-isan = User "isan"
+-- isan ∷ User
+-- isan = User "isan"
 
 textHabit ∷ Text → Maybe Habit
 textHabit t = if invalidHabit then Nothing else Just $ Habit t where
