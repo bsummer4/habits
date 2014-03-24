@@ -38,7 +38,7 @@ var habitDOM = function(name, status, callback) {
 
 var addHabit = function(habit, cont) {
   var body = {AddHabit:[["isan","pass"],"isan",habit]};
-  rpc(body,cont); }
+  return function() { rpc(body,cont); }; }
 
 var addHabitHandler = function() {
   var hab = document.getElementById("habit").value;

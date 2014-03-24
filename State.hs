@@ -8,7 +8,7 @@ module State
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser, textPassword
   , isSuccess, emptyState
-  , Register(Register), UserPassword(UserPassword)
+  , Register(Register), Authenticate(Authenticate)
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
   , SetHabitStatus(SetHabitStatus)
@@ -154,8 +154,11 @@ register user pass = do
       put $ State $ Map.insert user (UserState pass Set.empty Map.empty) users
       return True
 
-userPassword ∷ User → Query State (Maybe Password)
-userPassword user = ask >>= return ∘ fmap uPass ∘ Map.lookup user ∘ unState
+authenticate ∷ User → Password → Query State Bool
+authenticate user pass = ask >>= \(State users) →
+	return $ case Map.lookup user users of
+		Nothing → False
+		Just usrSt → pass ≡ uPass usrSt
 
 userHabits ∷ User → Query State (Maybe (Set Habit))
 userHabits user = ask >>= return ∘ fmap uHabits ∘ Map.lookup user ∘ unState
@@ -216,6 +219,6 @@ habitsStatus u day = do
     return $ fillStatusBlanks (uHabits usrSt) habitStatuses
 
 $(makeAcidic ''State
-  [ 'addHabit, 'setHabitStatus, 'delHabit, 'register, 'userPassword
+  [ 'addHabit, 'setHabitStatus, 'delHabit, 'register, 'authenticate
   , 'userHabits, 'chains, 'habitsStatus
   ])

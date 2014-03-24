@@ -1,22 +1,11 @@
 This is a habit tracking webapp that I use as a self-improvement tool.
 
-# Issues
-TODO Make endpoints use usernames.
 TODO Show all chains upto today for successful habits.
 TODO Show all chains upto yesterday for successful habits.
 TODO Add a list of notes for each day.
 TODO Associate a double with each habit.
 TODO Get plots for each habit.
-TODO There should be a not-applicable status for some habits.
-TODO using Long-polling or web sockets to get updates in real time.
-
-# UI Issues
-TODO Numeric tracking:
-    All successful habits have an associated number.
-    Initially, it's NaN.
-    Click to change it.
-
-TODO Notes.
-    There's an <input></input> to add new notes.
-    Click on a note to delete it.
-    Notes are associated with days.
+TODO Use web sockets to get updates in real time.
+TODO Hash all the passwords in the database.
+TODO Use encrypted tokens instead of plain-text passwords.
+TODO Store the token is local storage instead of hard-coding it.

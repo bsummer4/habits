@@ -24,9 +24,7 @@ import qualified Data.ByteString.Lazy.Char8 as ASCII
 data Tok = Tok DB.User DB.Password
 data Resp
   = OK
-  | MALFORMED_REQUEST
-  | NOT_FOUND
-  | USER_ALREADY_EXISTS
+  | MALFORMED_REQUEST | NOT_FOUND | USER_ALREADY_EXISTS | NOT_ALLOWED
   | AUTH Tok
   | STATUSES (Map DB.Habit DB.HabitStatus)
   | HABITS (Set DB.Habit)
@@ -67,39 +65,60 @@ instance J.FromJSON α ⇒ J.FromJSON (Map DB.Habit α) where
       Just kvs → return $ Map.fromList kvs
 
 
+-- [[Authentication and Authorization]]
+genToken ∷ DB.User → DB.Password → IO Tok
+genToken u p = return $ Tok u p
+
+tokenUserMatch ∷ AcidState DB.State → Tok → DB.User → IO Bool
+tokenUserMatch db (Tok u p) user = do
+	okpass ← query db $ DB.Authenticate u p
+	return $ okpass && u≡user
+
+authorized ∷ AcidState DB.State → Req → IO Bool
+authorized db r = let check t u = tokenUserMatch db t u in
+  case r of
+    Register _ _ → return True
+    GetHabitsStatus t u _ → check t u
+    SetHabitsStatus t u _ _ _ → check t u
+    GetChains t u _ → check t u
+    AddHabit t u _ → check t u
+    DelHabit t u _ → check t u
+    ListHabits t u → check t u
+
+
 -- [[HTTP Requests and Responses]]
 mkDay ∷ Text → Maybe Day
 mkDay t = case Text.decimal t of
   Left _ → Nothing
   Right (v,_) → Just(ModifiedJulianDay v)
 
-
--- [[Application Logic]]
 respond ∷ AcidState DB.State → Req → IO Resp
-respond db req = case req of
-  Register user pass → do
-    didIt ← update db (DB.Register user pass)
-    return $ case didIt of
-      False → USER_ALREADY_EXISTS
-      True → AUTH $ Tok user pass
-  ListHabits _ user → do
-    mhabits ← query db $ DB.UserHabits user
-    return $ fromMaybe NOT_FOUND $ fmap HABITS $ mhabits
-  GetHabitsStatus _ user day → do
-    mstatuses ← query db $ DB.HabitsStatus user day
-    return $ fromMaybe NOT_FOUND $ fmap STATUSES $ mstatuses
-  GetChains _ user day → do
-    mchains ← query db (DB.Chains user day)
-    return $ fromMaybe NOT_FOUND $ fmap CHAINS $ mchains
-  AddHabit _ user habit → do
-    _ ← update db (DB.AddHabit user habit)
-    return OK
-  DelHabit _ user habit → do
-    _ ← update db (DB.DelHabit user habit)
-    return OK
-  SetHabitsStatus _ user day habit status → do
-    _ ← update db $ DB.SetHabitStatus user day habit status
-    return OK
+respond db req = do
+  ok ← authorized db req
+  if not ok then return NOT_ALLOWED else case req of
+    Register user pass → do
+      didIt ← update db $ DB.Register user pass
+      return $ case didIt of
+        False → USER_ALREADY_EXISTS
+        True → AUTH $ Tok user pass
+    ListHabits _ user → do
+      mhabits ← query db $ DB.UserHabits user
+      return $ fromMaybe NOT_FOUND $ fmap HABITS $ mhabits
+    GetHabitsStatus _ user day → do
+      mstatuses ← query db $ DB.HabitsStatus user day
+      return $ fromMaybe NOT_FOUND $ fmap STATUSES $ mstatuses
+    GetChains _ user day → do
+      mchains ← query db (DB.Chains user day)
+      return $ fromMaybe NOT_FOUND $ fmap CHAINS $ mchains
+    AddHabit _ user habit → do
+      _ ← update db (DB.AddHabit user habit)
+      return OK
+    DelHabit _ user habit → do
+      _ ← update db (DB.DelHabit user habit)
+      return OK
+    SetHabitsStatus _ user day habit status → do
+      _ ← update db $ DB.SetHabitStatus user day habit status
+      return OK
 
 app ∷ AcidState DB.State → W.Request → IO W.Response
 app db webreq = case W.requestMethod webreq of
