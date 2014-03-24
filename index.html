@@ -79,9 +79,9 @@ var successSetFromAllHabits = function(habitSet, response) {
   console.log(toJSON(result));
   return result; }
 
-var successes = function(habitSet, day, cont) {
+var habitsStatus = function(habitSet, day, cont) {
   body = {"GetHabitsStatus": [["isan","pass"],"isan",day]}
-  rpc(body,function(r){ cont(successSetFromAllHabits(habitSet, r)); }); }
+  rpc(body,function(r){ cont(r["STATUSES"]); }); }
 
 var calcFailures = function(habitSet, successSet) {
   var result = [];
@@ -92,16 +92,20 @@ var calcFailures = function(habitSet, successSet) {
 var update = function() {
   allHabits(function(response) {
     var habitSet = response["HABITS"]
-    successes(habitSet, day, function(successSet) {
-      var failureSet = calcFailures(habitSet,successSet);
-      writeDOM(habitSet, successSet, failureSet); }); }); }
+    habitsStatus(habitSet, day, function(statuses) {
+      writeDOM(habitSet, statuses); }); }); }
 
-var setDone = function(day, habit, status, cont) {
-  var status = status ? {"Success":null} : {"Failure":null};
-  body = {"SetHabitsStatus":[["isan","pass"],"isan",day,habit,status]};
-  return (function() { rpc(body, cont); }); }
+var setDone = function(day, habit, statusCode, cont) {
+  var status;
+  if (statusCode == "success") { status={"Success":null}; }
+  else if (statusCode == "failure") { status={"Failure":null}; }
+  else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
+  else { throw "bad statusCode"; }
+  return (function() {
+    body = {"SetHabitsStatus":[["isan","pass"],"isan",day,habit,status]};
+    rpc(body, cont); }); }
 
-var writeDOM = function(habitSet, successSet, failureSet) {
+var writeDOM = function(habitSet, statuses) {
   var node = $("#notices");
   node.empty()
 
@@ -119,17 +123,18 @@ var writeDOM = function(habitSet, successSet, failureSet) {
   hdr.append(forward);
 
   var habitList = $("<p>");
-  successSet.sort(); failureSet.sort();
-  for (var i=0,j=0;;) {
-    if (i>=successSet.length && j>=failureSet.length) break;
-    // habitList.append(" ");
-    if (j >= failureSet.length || successSet[i] <= failureSet[j]) {
-      var n = successSet[i++];
-      habitList.append(habitDOM(n, "success", setDone(day,n,false,update))); }
-    else if (i >= successSet.length || successSet[i] > failureSet[j]) {
-      var n = failureSet[j++];
-      habitList.append(habitDOM(n, "failure", setDone(day,n,true,update))); }
-    else { break; }}
+  for (habitName in statuses) {
+    var status, alt, nm=habitName;
+    console.log(status);
+    if ("Success" in statuses[nm])
+      { status="success"; alt="failure"; }
+    else if ("Failure" in statuses[nm])
+      { status="failure"; alt="unspecified"; }
+    else if ("Unspecified" in statuses[nm])
+      { status="unspecified"; alt="success"; }
+    else { status="unspecified"; alt=true; }
+    habitList.append(habitDOM(json(toJSON(nm)),status,
+      setDone(day,json(toJSON(nm)),alt,update))); }
 
   var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
   var allHabitsP = $("<p>");
