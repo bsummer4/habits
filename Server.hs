@@ -3,6 +3,9 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+-- TODO Make a separate request for loging in. Right now I just register every
+--   time which is a hack.
+
 import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
@@ -16,10 +19,7 @@ import qualified Network.Wai.Handler.WarpTLS as W
 import qualified Data.Aeson as J
 import qualified Data.Aeson.TH as J
 import qualified Data.Map as Map
-import qualified Data.Text.Read as Text
 import qualified State as DB
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as ASCII
 import qualified Auth as Auth
 import qualified Web.ClientSession as ClientSession
@@ -88,61 +88,44 @@ authorized db r =
 
 
 -- [[HTTP Requests and Responses]]
-tolazy ∷ BS.ByteString → LBS.ByteString
-tolazy b = LBS.fromChunks [b]
-
-unlazy ∷ LBS.ByteString → BS.ByteString
-unlazy = BS.concat ∘ LBS.toChunks
-
-mkDay ∷ Text → Maybe Day
-mkDay t = case Text.decimal t of
-  Left _ → Nothing
-  Right (v,_) → Just(ModifiedJulianDay v)
-
 respond ∷ AcidState Auth.Registrations → AcidState DB.State → Req → IO Resp
 respond authdb db req = do
   k ← ClientSession.getDefaultKey
   ok ← authorized authdb req
   if not ok then return NOT_ALLOWED else case req of
+    ListHabits _ user →
+      query db (DB.UserHabits user) >>= return ∘ HABITS
+    GetHabitsStatus _ user day →
+      query db (DB.HabitsStatus user day) >>= return ∘ STATUSES
+    GetChains _ user day → do
+      query db (DB.Chains user day) >>= return ∘ CHAINS
+    AddHabit _ user habit → do
+      update db (DB.AddHabit user habit) >> return OK
+    DelHabit _ user habit → do
+      update db (DB.DelHabit user habit) >> return OK
+    SetHabitsStatus _ user day habit status → do
+      update db (DB.SetHabitStatus user day habit status) >> return OK
     Register user pass → do
       _ ← Auth.register authdb user (Auth.mkPass pass)
       tok ← Auth.token k user (Auth.mkPass pass)
       return $ AUTH tok
-    ListHabits _ user → do
-      habits ← query db $ DB.UserHabits user
-      return $ HABITS habits
-    GetHabitsStatus _ user day → do
-      statuses ← query db $ DB.HabitsStatus user day
-      return $ STATUSES statuses
-    GetChains _ user day → do
-      chains ← query db (DB.Chains user day)
-      return $ CHAINS chains
-    AddHabit _ user habit → do
-      _ ← update db (DB.AddHabit user habit)
-      return OK
-    DelHabit _ user habit → do
-      _ ← update db (DB.DelHabit user habit)
-      return OK
-    SetHabitsStatus _ user day habit status → do
-      _ ← update db $ DB.SetHabitStatus user day habit status
-      return OK
+
+html = [("Content-Type", "text/html")]
+json = [("Content-Type", "application/javascript")]
 
 app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
-app authdb db webreq = case W.requestMethod webreq of
-  "GET" → return $ W.responseFile W.status200 html "./index.html" Nothing
-    where html = [("Content-Type", "text/html")]
-  _ → do
+app authdb db webreq =
+  if "GET" ≡ W.requestMethod webreq
+  then return $ W.responseFile W.status200 html "./index.html" Nothing
+  else do
     body ← W.lazyRequestBody webreq
+    putStrLn "=========="
     ASCII.putStrLn body
     resp ← case J.decode body of
       Nothing → return MALFORMED_REQUEST
-      Just req → do
-        putStrLn "=========="
-        putStrLn $ pack $ show req
-        respond authdb db req
+      Just req → respond authdb db req
     ASCII.putStrLn $ J.encode resp
-    let json = [("Content-Type", "application/javascript")]
-    return $ W.responseLBS W.status200 json $ J.encode resp where
+    return $ W.responseLBS W.status200 json $ J.encode resp
 
 main ∷ IO()
 main = do

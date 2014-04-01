@@ -1,9 +1,12 @@
+-- TODO It would be cleaner to expose IO operations instead of exposing the
+--   actual DB events
+
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 
 module State
-  ( Habit, State, Password
+  ( Habit, State
   , NoteStatus
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser
@@ -30,7 +33,6 @@ import qualified Data.Aeson.TH as J
 
 -- [[Datatypes]]
 type User = ByteString
-data Password = Password ByteString
 data Habit = Habit Text
 data NoteStatus = NoteSuccess | NoteFailure | NoteUnspecified
 data HabitStatus = Success(Maybe Double) | Failure(Maybe Double) | Unspecified
@@ -45,7 +47,6 @@ deriving instance Show DayState
 deriving instance Show Habit
 deriving instance Show HabitStatus
 deriving instance Show NoteStatus
-deriving instance Show Password -- TODO No!
 deriving instance Show State
 deriving instance Show UserState
 deriving instance Typeable Habit
@@ -53,7 +54,6 @@ deriving instance Typeable HabitStatus
 deriving instance Typeable NoteStatus
 deriving instance Typeable State
 
-$(deriveSafeCopy 0 'base ''Password)
 $(deriveSafeCopy 0 'base ''Habit)
 $(deriveSafeCopy 0 'base ''NoteStatus)
 $(deriveSafeCopy 0 'base ''HabitStatus)
@@ -63,7 +63,6 @@ $(deriveSafeCopy 3 'base ''State)
 
 $(J.deriveJSON J.defaultOptions ''Habit)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
-$(J.deriveJSON J.defaultOptions ''Password)
 
 instance J.FromJSON ByteString where
   parseJSON o = J.parseJSON o >>= return∘encodeUtf8
@@ -176,15 +175,13 @@ setHabitStatus user day habit newStatus = do
 
 chains ∷ User → Day → Query State (Map Habit Int)
 chains user day = do
-  st ← ask
-  let usrSt = getUser user st
+  usrSt ← ask >>= return ∘ getUser user
   return $ chainLengths (uHabits usrSt) $ map successfulHabits $
     historyIterator day (uHistory usrSt)
 
 habitsStatus ∷ User → Day → Query State (Map Habit HabitStatus)
 habitsStatus u day = do
-  st ← ask
-  let usrSt = getUser u st
+  usrSt ← ask >>= return ∘ getUser u
   let DayState _ habitStatuses = getDay day $ uHistory usrSt
   return $ fillStatusBlanks (uHabits usrSt) habitStatuses
 
