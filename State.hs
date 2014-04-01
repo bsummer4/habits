@@ -3,12 +3,12 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 
 module State
-  ( User, Password, Habit, State
+  ( User, Habit, State, Password
   , NoteStatus
   , HabitStatus(Success, Failure, Unspecified)
-  , textHabit, habitText, userText, textUser, textPassword
+  , textHabit, habitText, userText, textUser
   , isSuccess, emptyState
-  , Register(Register), Authenticate(Authenticate)
+  , register, Authenticate(Authenticate)
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
   , SetHabitStatus(SetHabitStatus)
@@ -27,21 +27,24 @@ import qualified Data.Text as Text
 import Data.Time.Calendar (addDays)
 import qualified Data.Aeson as J
 import qualified Data.Aeson.TH as J
+import qualified Crypto.PasswordStore as PW
 
 
 -- [[Datatypes]]
 data User = User Text
-data Password = Password Text
+data Password = Password ByteString
 data Habit = Habit Text
 data NoteStatus = NoteSuccess | NoteFailure | NoteUnspecified
 data HabitStatus = Success(Maybe Double) | Failure(Maybe Double) | Unspecified
 data DayState = DayState [(Text,NoteStatus)] (Map Habit HabitStatus)
 data State = State(Map User UserState)
 type History = Map Day DayState
-data UserState = UserState {uPass∷Password, uHabits∷Set Habit, uHistory∷History}
+data UserState = UserState
+  { uPassHash ∷ ByteString
+  , uHabits ∷ Set Habit
+  , uHistory ∷ History }
 
 deriving instance Eq Habit
-deriving instance Eq Password
 deriving instance Eq User
 deriving instance Ord Habit
 deriving instance Ord User
@@ -49,15 +52,14 @@ deriving instance Show DayState
 deriving instance Show Habit
 deriving instance Show HabitStatus
 deriving instance Show NoteStatus
-deriving instance Show Password
+deriving instance Show Password -- TODO No!
 deriving instance Show State
 deriving instance Show User
 deriving instance Show UserState
-deriving instance Typeable State
-deriving instance Typeable Password
 deriving instance Typeable Habit
 deriving instance Typeable HabitStatus
 deriving instance Typeable NoteStatus
+deriving instance Typeable State
 
 $(deriveSafeCopy 0 'base ''Password)
 $(deriveSafeCopy 0 'base ''User)
@@ -70,16 +72,19 @@ $(deriveSafeCopy 3 'base ''State)
 
 $(J.deriveJSON J.defaultOptions ''Habit)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
-$(J.deriveJSON J.defaultOptions ''Password)
 $(J.deriveJSON J.defaultOptions ''User)
+$(J.deriveJSON J.defaultOptions ''Password)
+
+instance J.FromJSON ByteString where
+	parseJSON o = J.parseJSON o >>= return∘encodeUtf8
+
+instance J.ToJSON ByteString where
+	toJSON = J.toJSON ∘ decodeUtf8
 
 
 -- [[Smart Constructors]]
 emptyState ∷ State
 emptyState = State Map.empty
-
--- isan ∷ User
--- isan = User "isan"
 
 textHabit ∷ Text → Maybe Habit
 textHabit t = if invalidHabit then Nothing else Just $ Habit t where
@@ -102,9 +107,6 @@ userText (User name) = name
 
 textUser ∷ Text → Maybe User
 textUser t = if validUsername t then Just $ User t else Nothing
-
-textPassword ∷ Text → Password
-textPassword = Password
 
 
 -- [[Utility Functions]]
@@ -145,20 +147,21 @@ unState (State st) = st
 
 
 -- [[Acid State Operations]]
-register ∷ User → Password → Update State Bool
-register user pass = do
+registerDB ∷ User → ByteString → Update State Bool
+registerDB user pwhash = do
   State users ← liftQuery ask
   case Map.lookup user users of
     Just _ → return False
     Nothing → do
-      put $ State $ Map.insert user (UserState pass Set.empty Map.empty) users
+      let users' = Map.insert user (UserState pwhash Set.empty Map.empty) users
+      put $ State $ users'
       return True
 
 authenticate ∷ User → Password → Query State Bool
-authenticate user pass = ask >>= \(State users) →
-	return $ case Map.lookup user users of
-		Nothing → False
-		Just usrSt → pass ≡ uPass usrSt
+authenticate user (Password pass) = ask >>= \(State users) →
+  return $ case Map.lookup user users of
+    Nothing → False
+    Just usrSt → PW.verifyPassword pass $ uPassHash usrSt
 
 userHabits ∷ User → Query State (Maybe (Set Habit))
 userHabits user = ask >>= return ∘ fmap uHabits ∘ Map.lookup user ∘ unState
@@ -219,6 +222,12 @@ habitsStatus u day = do
     return $ fillStatusBlanks (uHabits usrSt) habitStatuses
 
 $(makeAcidic ''State
-  [ 'addHabit, 'setHabitStatus, 'delHabit, 'register, 'authenticate
+  [ 'addHabit, 'setHabitStatus, 'delHabit, 'registerDB, 'authenticate
   , 'userHabits, 'chains, 'habitsStatus
   ])
+
+register ∷ AcidState State → User → Password → IO Bool
+register db user (Password pass) = do
+	pwhash ← PW.makePassword pass 14
+	update db $ RegisterDB user pwhash
+

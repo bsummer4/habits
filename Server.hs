@@ -3,6 +3,8 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+-- TODO Making DB.User Opaque is sort of silly since we can J.encode it.
+
 import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
@@ -19,9 +21,12 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text.Read as Text
 import qualified State as DB
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as ASCII
+import qualified Web.ClientSession as ClientSession
 
-data Tok = Tok DB.User DB.Password
+data Tok = Tok Text
 data Resp
   = OK
   | MALFORMED_REQUEST | NOT_FOUND | USER_ALREADY_EXISTS | NOT_ALLOWED
@@ -67,12 +72,24 @@ instance J.FromJSON α ⇒ J.FromJSON (Map DB.Habit α) where
 
 -- [[Authentication and Authorization]]
 genToken ∷ DB.User → DB.Password → IO Tok
-genToken u p = return $ Tok u p
+genToken u p = do
+	k ← ClientSession.getDefaultKey
+	t ← ClientSession.encryptIO k $ unlazy $ J.encode(u,p)
+	return $ Tok $ decodeUtf8 t
 
 tokenUserMatch ∷ AcidState DB.State → Tok → DB.User → IO Bool
-tokenUserMatch db (Tok u p) user = do
-	okpass ← query db $ DB.Authenticate u p
-	return $ okpass && u≡user
+tokenUserMatch db (Tok t) user = do
+	k ← ClientSession.getDefaultKey
+	let tokjson = ClientSession.decrypt k $ encodeUtf8 t
+	let up = join $ fmap (J.decode ∘ tolazy) tokjson
+	putStrLn $ pack $ show k
+	putStrLn $ pack $ show tokjson
+	putStrLn $ pack $ show up
+	case (up ∷ Maybe (DB.User,DB.Password)) of
+		Nothing → return False
+		Just (u,p) → do
+			okpass ← query db $ DB.Authenticate u p
+			return $ okpass && u≡user
 
 authorized ∷ AcidState DB.State → Req → IO Bool
 authorized db r = let check t u = tokenUserMatch db t u in
@@ -87,6 +104,12 @@ authorized db r = let check t u = tokenUserMatch db t u in
 
 
 -- [[HTTP Requests and Responses]]
+tolazy ∷ BS.ByteString → LBS.ByteString
+tolazy b = LBS.fromChunks [b]
+
+unlazy ∷ LBS.ByteString → BS.ByteString
+unlazy = BS.concat ∘ LBS.toChunks
+
 mkDay ∷ Text → Maybe Day
 mkDay t = case Text.decimal t of
   Left _ → Nothing
@@ -97,10 +120,9 @@ respond db req = do
   ok ← authorized db req
   if not ok then return NOT_ALLOWED else case req of
     Register user pass → do
-      didIt ← update db $ DB.Register user pass
-      return $ case didIt of
-        False → USER_ALREADY_EXISTS
-        True → AUTH $ Tok user pass
+      _ ← DB.register db user pass
+      tok ← genToken user pass
+      return $ AUTH tok
     ListHabits _ user → do
       mhabits ← query db $ DB.UserHabits user
       return $ fromMaybe NOT_FOUND $ fmap HABITS $ mhabits
@@ -137,12 +159,12 @@ app db webreq = case W.requestMethod webreq of
     return $ W.responseLBS W.status200 json $ J.encode resp where
 
 Just isan = DB.textUser "isan"
-pw = DB.textPassword "pw"
+pw = "pw"
 Just today = mkDay "34987234"
 Just hab = DB.textHabit "pizza"
-shs = SetHabitsStatus (Tok isan pw) isan today hab (DB.Success Nothing)
-ghs = GetHabitsStatus (Tok isan pw) isan today
-lh = ListHabits (Tok isan pw) isan
+shs = SetHabitsStatus (Tok "isan pw") isan today hab (DB.Success Nothing)
+ghs = GetHabitsStatus (Tok "isan pw") isan today
+lh = ListHabits (Tok "isan pw") isan
 
 main ∷ IO()
 main = do

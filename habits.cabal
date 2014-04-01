@@ -11,4 +11,4 @@ executable habits
     build-depends:
         base, bytestring, clientsession, aeson, warp, wai, http-types, text,
         containers, safecopy, network, mtl, acid-state, base-unicode-symbols,
-        classy-prelude, base64-bytestring, time, warp-tls
+        classy-prelude, base64-bytestring, time, warp-tls, pwstore-fast

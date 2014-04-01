@@ -22,6 +22,8 @@
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
 
+var tok = ""
+var user = ""
 var julian = function(d) { return d.modifiedJulianDay(); }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
@@ -37,7 +39,7 @@ var habitDOM = function(name, status, callback) {
   return result; }
 
 var addHabit = function(habit, cont) {
-  var body = {AddHabit:[["isan","pass"],"isan",habit]};
+  var body = {AddHabit:[tok,user,habit]};
   return function() { rpc(body,cont); }; }
 
 var addHabitHandler = function() {
@@ -58,11 +60,11 @@ var rpc = function (obj,cont) {
 
 var delHabit = function(habit,cont) {
   return function() {
-    var body = {DelHabit:[["isan","pass"],"isan",habit]}
+    var body = {DelHabit:[tok,user,habit]}
     rpc(body,cont); }}
 
 var allHabits = function(cont) {
-  body = {ListHabits: [["isan","pass"],"isan"]};
+  body = {ListHabits: [tok,user]};
   console.log(body);
   console.log(cont);
   console.log(toJSON(body));
@@ -80,7 +82,7 @@ var successSetFromAllHabits = function(habitSet, response) {
   return result; }
 
 var habitsStatus = function(habitSet, day, cont) {
-  body = {"GetHabitsStatus": [["isan","pass"],"isan",day]}
+  body = {"GetHabitsStatus": [tok,user,day]}
   rpc(body,function(r){ cont(r["STATUSES"]); }); }
 
 var calcFailures = function(habitSet, successSet) {
@@ -102,7 +104,7 @@ var setDone = function(day, habit, statusCode, cont) {
   else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
   else { throw "bad statusCode"; }
   return (function() {
-    body = {"SetHabitsStatus":[["isan","pass"],"isan",day,habit,status]};
+    body = {"SetHabitsStatus":[tok,user,day,habit,status]};
     rpc(body, cont); }); }
 
 var writeDOM = function(habitSet, statuses) {
@@ -150,7 +152,15 @@ var writeDOM = function(habitSet, statuses) {
   node.append($("<br><br>"));
   node.append(allHabitsForm); }
 
-update();
+user = prompt("Username","isan");
+(function () {
+	var pass = prompt("Password","");
+	rpc({"Register":[user,pass]},
+		function (response) {
+			tok=response["AUTH"];
+			update();
+		});
+	})();
 
 </script>
 </body>
