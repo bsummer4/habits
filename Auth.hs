@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
 
 module Auth
   ( User, Password, Token, Registrations
@@ -18,33 +17,57 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map as Map
 import qualified Data.Text.Encoding as Text
 import Web.ClientSession
+import Data.Acid
+import Data.SafeCopy
+import Control.Monad.State (put)
+import Control.Monad.Reader (ask)
 
 data Password = Password ByteString
 type User = Text
 type Token = ByteString
 data Registrations = Regs(Map User ByteString)
 
+deriving instance Typeable Registrations
+$(deriveSafeCopy 0 'base ''Registrations)
+
 mkPass ∷ Text → Password
 mkPass = Password ∘ Text.encodeUtf8
 
+
+-- [[AcidState Stuff]]
+insDB ∷ User → ByteString → Update Registrations ()
+insDB u pwhash = liftQuery ask >>= \(Regs r) →
+  put $ Regs $ Map.insert u pwhash r
+
+queryDB ∷ Query Registrations Registrations
+queryDB = ask
+
+$(makeAcidic ''Registrations ['insDB, 'queryDB])
+
+
+-- [[Auth Stuff]]
 token ∷ Key → Text → Password → IO Token
 token k u (Password p) =
-	encryptIO k $ unlazy $ J.encode(u,Text.decodeUtf8 p)
+  encryptIO k $ unlazy $ J.encode(u,Text.decodeUtf8 p)
 
-authenticate ∷ Key → Registrations → Token → Maybe User
-authenticate k (Regs regs) tok = do
-  tokjson ← decrypt k tok
-  (user,pass) ← J.decode $ tolazy tokjson
-  pwhash ← Map.lookup user regs
-  let allgood = PW.verifyPassword (Text.encodeUtf8 pass) pwhash
-  if not allgood then Nothing else
-    Just user
+authenticate ∷ AcidState Registrations → Key → Token → IO(Maybe User)
+authenticate db k tok = do
+  Regs regs ← query db $ QueryDB
+  return $ do
+    tokjson ← decrypt k tok
+    (user,pass) ← J.decode $ tolazy tokjson
+    pwhash ← Map.lookup user regs
+    let allgood = PW.verifyPassword (Text.encodeUtf8 pass) pwhash
+    if not allgood then Nothing else
+      Just user
 
-register ∷ Registrations → User → Password → IO(Maybe Registrations)
-register (Regs regs) user (Password p) = do
+register ∷ AcidState Registrations → User → Password → IO Bool
+register db user (Password p) = do
   pwhash ← PW.makePassword p 14
-  if Map.member user regs then return Nothing else
-    return $ Just $ Regs $ Map.insert user pwhash regs
+  Regs regs ← query db $ QueryDB
+  if Map.member user regs then return False else do
+    () ← update db $ InsDB user pwhash
+    return True
 
 
 -- [[Utillities]]

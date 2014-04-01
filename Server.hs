@@ -18,7 +18,6 @@ import qualified Network.Wai.Handler.WarpTLS as W
 import qualified Data.Aeson as J
 import qualified Data.Aeson.TH as J
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import qualified Data.Text.Read as Text
 import qualified State as DB
 import qualified Data.ByteString as BS
@@ -147,7 +146,7 @@ app db webreq = case W.requestMethod webreq of
   "GET" → return $ W.responseFile W.status200 html "./index.html" Nothing
     where html = [("Content-Type", "text/html")]
   _ → do
-    ClassyPrelude.mapM_ (ASCII.putStrLn ∘ J.encode) [lh,ghs,shs]
+    -- ClassyPrelude.mapM_ (ASCII.putStrLn ∘ J.encode) [lh,ghs,shs]
     body ← W.lazyRequestBody webreq
     ASCII.putStrLn body
     resp ← case J.decode body of
@@ -158,13 +157,13 @@ app db webreq = case W.requestMethod webreq of
     let json = [("Content-Type", "application/javascript")]
     return $ W.responseLBS W.status200 json $ J.encode resp where
 
-Just isan = DB.textUser "isan"
-pw = "pw"
-Just today = mkDay "34987234"
-Just hab = DB.textHabit "pizza"
-shs = SetHabitsStatus (Tok "isan pw") isan today hab (DB.Success Nothing)
-ghs = GetHabitsStatus (Tok "isan pw") isan today
-lh = ListHabits (Tok "isan pw") isan
+-- Just isan = DB.textUser "isan"
+-- pw = "pw"
+-- Just today = mkDay "34987234"
+-- Just hab = DB.textHabit "pizza"
+-- shs = SetHabitsStatus (Tok "isan pw") isan today hab (DB.Success Nothing)
+-- ghs = GetHabitsStatus (Tok "isan pw") isan today
+-- lh = ListHabits (Tok "isan pw") isan
 
 main ∷ IO()
 main = do
