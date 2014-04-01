@@ -125,8 +125,10 @@ var writeDOM = function(habitSet, statuses) {
   hdr.append(forward);
 
   var habitList = $("<p>");
-  for (habitName in statuses) {
-    var status, alt, nm=habitName;
+  var habitNames = Object.keys(statuses);
+  habitNames.sort();
+  for (i in habitNames) {
+    var status, alt, nm=habitNames[i];
     console.log(status);
     if ("Success" in statuses[nm])
       { status="success"; alt="failure"; }

@@ -3,12 +3,11 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 
 module State
-  ( User, Habit, State, Password
+  ( Habit, State, Password
   , NoteStatus
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser
-  , isSuccess, emptyState
-  , register, Authenticate(Authenticate)
+  , emptyState
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
   , SetHabitStatus(SetHabitStatus)
@@ -27,11 +26,10 @@ import qualified Data.Text as Text
 import Data.Time.Calendar (addDays)
 import qualified Data.Aeson as J
 import qualified Data.Aeson.TH as J
-import qualified Crypto.PasswordStore as PW
 
 
 -- [[Datatypes]]
-data User = User Text
+type User = ByteString
 data Password = Password ByteString
 data Habit = Habit Text
 data NoteStatus = NoteSuccess | NoteFailure | NoteUnspecified
@@ -39,22 +37,16 @@ data HabitStatus = Success(Maybe Double) | Failure(Maybe Double) | Unspecified
 data DayState = DayState [(Text,NoteStatus)] (Map Habit HabitStatus)
 data State = State(Map User UserState)
 type History = Map Day DayState
-data UserState = UserState
-  { uPassHash ∷ ByteString
-  , uHabits ∷ Set Habit
-  , uHistory ∷ History }
+data UserState = UserState {uHabits∷Set Habit, uHistory∷History}
 
 deriving instance Eq Habit
-deriving instance Eq User
 deriving instance Ord Habit
-deriving instance Ord User
 deriving instance Show DayState
 deriving instance Show Habit
 deriving instance Show HabitStatus
 deriving instance Show NoteStatus
 deriving instance Show Password -- TODO No!
 deriving instance Show State
-deriving instance Show User
 deriving instance Show UserState
 deriving instance Typeable Habit
 deriving instance Typeable HabitStatus
@@ -62,7 +54,6 @@ deriving instance Typeable NoteStatus
 deriving instance Typeable State
 
 $(deriveSafeCopy 0 'base ''Password)
-$(deriveSafeCopy 0 'base ''User)
 $(deriveSafeCopy 0 'base ''Habit)
 $(deriveSafeCopy 0 'base ''NoteStatus)
 $(deriveSafeCopy 0 'base ''HabitStatus)
@@ -72,14 +63,13 @@ $(deriveSafeCopy 3 'base ''State)
 
 $(J.deriveJSON J.defaultOptions ''Habit)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
-$(J.deriveJSON J.defaultOptions ''User)
 $(J.deriveJSON J.defaultOptions ''Password)
 
 instance J.FromJSON ByteString where
-	parseJSON o = J.parseJSON o >>= return∘encodeUtf8
+  parseJSON o = J.parseJSON o >>= return∘encodeUtf8
 
 instance J.ToJSON ByteString where
-	toJSON = J.toJSON ∘ decodeUtf8
+  toJSON = J.toJSON ∘ decodeUtf8
 
 
 -- [[Smart Constructors]]
@@ -102,30 +92,33 @@ validUsername t = lenOK && okCharset where
     Nothing → False
     Just(h,tail) → h `elem` az && Text.all (`elem` az09) tail
 
-userText ∷ User → Text
-userText (User name) = name
+userText ∷ ByteString → ByteString
+userText = id
 
-textUser ∷ Text → Maybe User
-textUser t = if validUsername t then Just $ User t else Nothing
+textUser ∷ ByteString → Maybe ByteString
+textUser t = if validUsername (decodeUtf8 t) then Just t else Nothing
 
 
 -- [[Utility Functions]]
 -- ‘Map.union’ is left-biased, so things in ‘statuses’ are always used
 -- if they exist.
 fillStatusBlanks ∷ Set Habit → Map Habit HabitStatus → Map Habit HabitStatus
-fillStatusBlanks allHabits statuses = statuses `Map.union` bs where
-  bs = Map.fromList $ map (\k→(k,Unspecified)) $ Set.toList allHabits
-
-isSuccess ∷ HabitStatus → Bool
-isSuccess (Success _) = True
-isSuccess _ = False
+fillStatusBlanks allHabits statuses = result
+  where
+    result = Map.filterWithKey validHabit $ statuses `Map.union` bs
+    validHabit k _ = Set.member k allHabits
+    bs = Map.fromList $ map (\k→(k,Unspecified)) $ Set.toList allHabits
 
 -- An infinite list of DayStates going back in time from a given day.
 historyIterator ∷ Day → History → [DayState]
 historyIterator startDay history = iter startDay where
   iter today = todayState : iter tomorrow where
     tomorrow = addDays (-1) today
-    todayState = fromMaybe emptyDayState $ Map.lookup today history
+    todayState = getDay today history
+
+isSuccess ∷ HabitStatus → Bool
+isSuccess (Success _) = True
+isSuccess _ = False
 
 successfulHabits ∷ DayState → Set Habit
 successfulHabits (DayState _ habits) =
@@ -142,92 +135,58 @@ chainLengths allHabits days = loop (allHabits,Map.empty) days
     incCounts keysToIncrement counts =
       Set.fold (Map.alter(Just∘(1+)∘fromMaybe 0)) counts keysToIncrement
 
-unState ∷ State → Map User UserState
-unState (State st) = st
+getUser ∷ User → State → UserState
+getUser user (State users) =
+  fromMaybe (UserState Set.empty Map.empty) $ Map.lookup user users
+
+getDay ∷ Day → History → DayState
+getDay d hist = fromMaybe (DayState [] Map.empty) $ Map.lookup d hist
 
 
 -- [[Acid State Operations]]
-registerDB ∷ User → ByteString → Update State Bool
-registerDB user pwhash = do
-  State users ← liftQuery ask
-  case Map.lookup user users of
-    Just _ → return False
-    Nothing → do
-      let users' = Map.insert user (UserState pwhash Set.empty Map.empty) users
-      put $ State $ users'
-      return True
+userHabits ∷ User → Query State (Set Habit)
+userHabits user = ask >>= return ∘ uHabits ∘ getUser user
 
-authenticate ∷ User → Password → Query State Bool
-authenticate user (Password pass) = ask >>= \(State users) →
-  return $ case Map.lookup user users of
-    Nothing → False
-    Just usrSt → PW.verifyPassword pass $ uPassHash usrSt
-
-userHabits ∷ User → Query State (Maybe (Set Habit))
-userHabits user = ask >>= return ∘ fmap uHabits ∘ Map.lookup user ∘ unState
-
-addHabit ∷ User → Habit → Update State Bool
+addHabit ∷ User → Habit → Update State ()
 addHabit user newhabit = do
-  State users ← liftQuery ask
-  case Map.lookup user users of
-    Nothing → return False
-    Just usrSt → do
-      let habits' = (Set.insert newhabit $ uHabits usrSt) in
-        put $ State $ Map.insert user (usrSt {uHabits=habits'}) users
-      return True
+  st@(State users) ← liftQuery ask
+  let usrSt = getUser user st
+  let usrSt' = usrSt {uHabits = Set.insert newhabit $ uHabits usrSt}
+  put $ State $ Map.insert user usrSt' users
 
-delHabit ∷ User → Habit → Update State Bool
+delHabit ∷ User → Habit → Update State ()
 delHabit user habit = do
-  State users ← liftQuery ask
-  case Map.lookup user users of
-    Nothing → return False
-    Just(UserState pass habits history) → do
-      let habits' = (Set.delete habit habits) in
-        put $ State $ Map.insert user (UserState pass habits' history) users
-      return True
-
-emptyDayState ∷ DayState
-emptyDayState = DayState [] Map.empty
+  st@(State users) ← liftQuery ask
+  let UserState habits history = getUser user st
+  let habits' = Set.delete habit habits
+  put $ State $ Map.insert user (UserState habits' history) users
 
 updateHabitStatus ∷ Day → Habit → HabitStatus → History → History
 updateHabitStatus day habit status history = result where
-  DayState notes adherance = fromMaybe emptyDayState $ Map.lookup day history
+  DayState notes adherance = getDay day history
   dayState' = DayState notes (Map.insert habit status adherance)
   result = Map.insert day dayState' history
 
-setHabitStatus ∷ User → Day → Habit → HabitStatus → Update State Bool
+setHabitStatus ∷ User → Day → Habit → HabitStatus → Update State ()
 setHabitStatus user day habit newStatus = do
-  State users ← liftQuery ask
-  case Map.lookup user users of
-    Nothing → return False
-    Just(UserState pass habits history) →
-      if not(habit `Set.member` habits) then return False else
-        let history' = updateHabitStatus day habit newStatus history in do
-          put $ State $ Map.insert user (UserState pass habits history') users
-          return True
+  st@(State users) ← liftQuery ask
+  let (UserState habits history) = getUser user st
+  let history' = updateHabitStatus day habit newStatus history
+  put $ State $ Map.insert user (UserState habits history') users
 
-chains ∷ User → Day → Query State (Maybe (Map Habit Int))
+chains ∷ User → Day → Query State (Map Habit Int)
 chains user day = do
-  (State users) ← ask
-  return $ fmap mkChains $ Map.lookup user users where
-    mkChains usrSt = chainLengths (uHabits usrSt) $ map successfulHabits $
-      historyIterator day (uHistory usrSt)
+  st ← ask
+  let usrSt = getUser user st
+  return $ chainLengths (uHabits usrSt) $ map successfulHabits $
+    historyIterator day (uHistory usrSt)
 
-habitsStatus ∷ User → Day → Query State (Maybe (Map Habit HabitStatus))
+habitsStatus ∷ User → Day → Query State (Map Habit HabitStatus)
 habitsStatus u day = do
-  State users ← ask
-  return $ do
-    usrSt ← Map.lookup u users
-    let DayState _ habitStatuses = fromMaybe emptyDayState $ Map.lookup day $ uHistory usrSt
-    return $ fillStatusBlanks (uHabits usrSt) habitStatuses
+  st ← ask
+  let usrSt = getUser u st
+  let DayState _ habitStatuses = getDay day $ uHistory usrSt
+  return $ fillStatusBlanks (uHabits usrSt) habitStatuses
 
 $(makeAcidic ''State
-  [ 'addHabit, 'setHabitStatus, 'delHabit, 'registerDB, 'authenticate
-  , 'userHabits, 'chains, 'habitsStatus
-  ])
-
-register ∷ AcidState State → User → Password → IO Bool
-register db user (Password pass) = do
-	pwhash ← PW.makePassword pass 14
-	update db $ RegisterDB user pwhash
-
+  ['addHabit, 'setHabitStatus, 'delHabit, 'userHabits, 'chains, 'habitsStatus])

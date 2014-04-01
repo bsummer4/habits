@@ -4,7 +4,8 @@
 
 module Auth
   ( User, Password, Token, Registrations
-  , mkPass, register, authenticate, token
+  , mkPass, emptyRegistrations
+  , register, authenticate, token
   , module Web.ClientSession
   ) where
 
@@ -23,9 +24,12 @@ import Control.Monad.State (put)
 import Control.Monad.Reader (ask)
 
 data Password = Password ByteString
-type User = Text
+type User = ByteString
 type Token = ByteString
 data Registrations = Regs(Map User ByteString)
+
+emptyRegistrations ∷ Registrations
+emptyRegistrations = Regs $ Map.empty
 
 deriving instance Typeable Registrations
 $(deriveSafeCopy 0 'base ''Registrations)
@@ -46,16 +50,17 @@ $(makeAcidic ''Registrations ['insDB, 'queryDB])
 
 
 -- [[Auth Stuff]]
-token ∷ Key → Text → Password → IO Token
+token ∷ Key → User → Password → IO Token
 token k u (Password p) =
-  encryptIO k $ unlazy $ J.encode(u,Text.decodeUtf8 p)
+  encryptIO k $ unlazy $ J.encode(Text.decodeUtf8 u, Text.decodeUtf8 p)
 
 authenticate ∷ AcidState Registrations → Key → Token → IO(Maybe User)
 authenticate db k tok = do
   Regs regs ← query db $ QueryDB
   return $ do
     tokjson ← decrypt k tok
-    (user,pass) ← J.decode $ tolazy tokjson
+    (userT,pass) ← J.decode $ tolazy tokjson
+    let user = encodeUtf8 userT
     pwhash ← Map.lookup user regs
     let allgood = PW.verifyPassword (Text.encodeUtf8 pass) pwhash
     if not allgood then Nothing else
