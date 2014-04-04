@@ -32,6 +32,7 @@ data Resp
   | AUTH Auth.Token
   | STATUSES (Map DB.Habit DB.HabitStatus)
   | HABITS (Set DB.Habit)
+  | NOTES (Set Text)
   | CHAINS (Map DB.Habit Int)
 
 data Req
@@ -43,6 +44,9 @@ data RPC
   = GetHabitsStatus Auth.User Day
   | SetHabitsStatus Auth.User Day DB.Habit DB.HabitStatus
   | GetChains Auth.User Day
+  | GetNotes Auth.User Day
+  | AddNote Auth.User Day Text
+  | DelNote Auth.User Day Text
   | AddHabit Auth.User DB.Habit
   | DelHabit Auth.User DB.Habit
   | ListHabits Auth.User
@@ -90,6 +94,9 @@ authorized db req = let check t u = tokenUserMatch db t u in
       AddHabit u _ → check t u
       DelHabit u _ → check t u
       ListHabits u → check t u
+      GetNotes u _ → check t u
+      AddNote u _ _ → check t u
+      DelNote u _ _ → check t u
 
 -- [[HTTP Requests and Responses]]
 respond ∷ AcidState Auth.Registrations → AcidState DB.State → Req → IO Resp
@@ -115,6 +122,12 @@ respond authdb db req = do
         update db (DB.DelHabit user habit) >> return OK
       SetHabitsStatus user day habit status → do
         update db (DB.SetHabitStatus user day habit status) >> return OK
+      GetNotes user day →
+        NOTES <$> query db (DB.GetNotes user day)
+      AddNote user day note →
+        update db (DB.AddNote user day note) >> return OK
+      DelNote user day note →
+        update db (DB.DelNote user day note) >> return OK
 
 html = [("Content-Type", "text/html")]
 json = [("Content-Type", "application/javascript")]
@@ -135,6 +148,7 @@ app authdb db webreq =
       Just req → respond authdb db req
     ASCII.putStrLn $ J.encode resp
     return $ W.responseLBS W.status200 json $ J.encode resp
+
 main ∷ IO()
 main = do
   let tlsOpts = W.defaultTlsSettings
@@ -148,6 +162,7 @@ main = do
     closeAcidState db
     closeAcidState authdb
 
+forExample ∷ IO ()
 forExample =
   let
     day = ModifiedJulianDay 1234
@@ -164,6 +179,9 @@ forExample =
       , Request "tok" $ AddHabit "isan" habit
       , Request "tok" $ DelHabit "isan" habit
       , Request "tok" $ ListHabits "isan"
+      , Request "tok" $ AddNote "isan" day "test note"
+      , Request "tok" $ DelNote "isan" day "test note"
+      , Request "tok" $ GetNotes "isan" day
       ]
 
     respEx =
@@ -171,6 +189,7 @@ forExample =
       , AUTH "tok"
       , STATUSES $ Map.singleton habit hstatus
       , HABITS $ Set.singleton habit
+      , NOTES $ Set.singleton "TODO it"
       , CHAINS $ Map.singleton habit 99
       ]
 

@@ -51,6 +51,13 @@ var addHabitHandler = function() {
   var hab = document.getElementById("habit").value;
   addHabit(hab, update)(); }
 
+var addNote = function(note, cont) {
+  return function() { rpc(tok,{AddNote:[user,day,note]},cont); }; }
+
+var addNoteHandler = function() {
+  var not = document.getElementById("note").value;
+  addNote(not, update)(); }
+
 var trace = function(x) { console.log(x); return x; }
 var toJSON = function(s) { return JSON.stringify(s); }
 
@@ -58,9 +65,16 @@ var json = function(s) {
   if (s) {return JSON.parse(s); }
   else {return {}}; }
 
+var delNote = function(note,cont) {
+  return function() {
+    rpc(tok,{DelNote:[user,day,note]},cont); }}
+
 var delHabit = function(habit,cont) {
   return function() {
     rpc(tok,{DelHabit:[user,habit]},cont); }}
+
+var getNotes = function(cont) {
+  rpc(tok,{GetNotes:[user,day]},cont); }
 
 var allHabits = function(cont) {
   rpc(tok,{ListHabits:user},cont); }
@@ -87,10 +101,13 @@ var calcFailures = function(habitSet, successSet) {
   return result; }
 
 var update = function() {
-  allHabits(function(response) {
-    var habitSet = response["HABITS"]
-    habitsStatus(habitSet, day, function(statuses) {
-      writeDOM(habitSet, statuses); }); }); }
+  getNotes(function(noteResponse) {
+    console.log(noteResponse);
+    notes = noteResponse["NOTES"];
+    allHabits(function(response) {
+      var habitSet = response["HABITS"]
+      habitsStatus(habitSet, day, function(statuses) {
+        writeDOM(habitSet, statuses, notes); }); }); }); }
 
 var setDone = function(day, habit, statusCode, cont) {
   var status;
@@ -101,10 +118,7 @@ var setDone = function(day, habit, statusCode, cont) {
   return (function() {
     rpc(tok, {"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
 
-var writeDOM = function(habitSet, statuses) {
-  var node = $("#notices");
-  node.empty()
-
+var writeDOM = function(habitSet, statuses, notes) {
   var hdr = $("<h1>");
   hdr.addClass("header")
   var back = $("<span>&lt;&lt;</span>");
@@ -134,6 +148,16 @@ var writeDOM = function(habitSet, statuses) {
     habitList.append(habitDOM(json(toJSON(nm)),status,
       setDone(day,json(toJSON(nm)),alt,update))); }
 
+  console.log(notes)
+  notes.sort();
+  var noteList = $("<p>");
+  for (i in notes) {
+    noteList.append(habitDOM(json(toJSON(notes[i])),"unspecified",delNote(notes[i],update)));
+    noteList.append("<br>"); }
+
+  var addNoteForm = $("<form name=\"x\" action=\"javascript:addNoteHandler()\">");
+  addNoteForm.append($("<input name=\"note\" value=\"Add a Note\" type=\"text\" id=\"note\">"));
+
   var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
   var allHabitsP = $("<p>");
   for (var i in habitSet) {
@@ -141,9 +165,13 @@ var writeDOM = function(habitSet, statuses) {
   allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
   allHabitsForm.append(allHabitsP);
 
+  var node = $("#notices");
+  node.empty()
   node.append(hdr);
   node.append(habitList);
-  node.append($("<br><br>"));
+  node.append(noteList);
+  node.append(addNoteForm);
+  node.append($("<hr><hr><hr><hr>"));
   node.append(allHabitsForm); }
 
 user = prompt("Username","isan");

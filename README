@@ -9,7 +9,6 @@ TODO Fill out the API to support all the features the datastore supports.
 TODO Hack together a simple client that uses the entire API.
 	TODO Show all chains upto today for successful habits.
 	TODO Show all chains upto yesterday for successful habits.
-	TODO Add a list of notes for each day.
 	TODO Associate a double with each habit.
 	TODO Get plots for each habit.
 	TODO Create a log-in page on the client, and store the token in local storage.

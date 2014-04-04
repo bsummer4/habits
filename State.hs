@@ -7,13 +7,13 @@
 
 module State
   ( Habit, State
-  , NoteStatus
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser
   , emptyState
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
   , SetHabitStatus(SetHabitStatus)
+  , GetNotes(GetNotes), AddNote(AddNote), DelNote(DelNote)
   ) where
 
 import ClassyPrelude
@@ -34,28 +34,31 @@ import qualified Data.Aeson.TH as J
 -- [[Datatypes]]
 type User = ByteString
 data Habit = Habit Text
-data NoteStatus = NoteSuccess | NoteFailure | NoteUnspecified
 data HabitStatus = Success(Maybe Double) | Failure(Maybe Double) | Unspecified
-data DayState = DayState [(Text,NoteStatus)] (Map Habit HabitStatus)
+data DayState = DayState
+  { dayNotes ∷ Set Text
+  , dayHabits ∷ Map Habit HabitStatus
+  }
+
 data State = State(Map User UserState)
 type History = Map Day DayState
-data UserState = UserState {uHabits∷Set Habit, uHistory∷History}
+data UserState = UserState
+  { uHabits∷Set Habit
+  , uHistory∷History
+  }
 
 deriving instance Eq Habit
 deriving instance Ord Habit
 deriving instance Show DayState
 deriving instance Show Habit
 deriving instance Show HabitStatus
-deriving instance Show NoteStatus
 deriving instance Show State
 deriving instance Show UserState
 deriving instance Typeable Habit
 deriving instance Typeable HabitStatus
-deriving instance Typeable NoteStatus
 deriving instance Typeable State
 
 $(deriveSafeCopy 0 'base ''Habit)
-$(deriveSafeCopy 0 'base ''NoteStatus)
 $(deriveSafeCopy 0 'base ''HabitStatus)
 $(deriveSafeCopy 0 'base ''UserState)
 $(deriveSafeCopy 0 'base ''DayState)
@@ -139,7 +142,7 @@ getUser user (State users) =
   fromMaybe (UserState Set.empty Map.empty) $ Map.lookup user users
 
 getDay ∷ Day → History → DayState
-getDay d hist = fromMaybe (DayState [] Map.empty) $ Map.lookup d hist
+getDay d hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
 
 
 -- [[Acid State Operations]]
@@ -185,5 +188,28 @@ habitsStatus u day = do
   let DayState _ habitStatuses = getDay day $ uHistory usrSt
   return $ fillStatusBlanks (uHabits usrSt) habitStatuses
 
+getNotes ∷ User → Day → Query State (Set Text)
+getNotes user day =
+	dayNotes <$> getDay day <$> uHistory <$> getUser user <$> ask
+
+delNote ∷ User → Day → Text → Update State ()
+delNote user day note = do
+  st@(State users) ← liftQuery ask
+  let UserState habits history = getUser user st
+  let DayState notes adherance = getDay day history
+  let dayState' = DayState (Set.delete note notes) adherance
+  let history' = Map.insert day dayState' history
+  put $ State $ Map.insert user (UserState habits history') users
+
+addNote ∷ User → Day → Text → Update State ()
+addNote user day note = do
+  st@(State users) ← liftQuery ask
+  let UserState habits history = getUser user st
+  let DayState notes adherance = getDay day history
+  let dayState' = DayState (Set.insert note notes) adherance
+  let history' = Map.insert day dayState' history
+  put $ State $ Map.insert user (UserState habits history') users
+
 $(makeAcidic ''State
-  ['addHabit, 'setHabitStatus, 'delHabit, 'userHabits, 'chains, 'habitsStatus])
+  [ 'addHabit, 'setHabitStatus, 'delHabit, 'userHabits, 'chains, 'habitsStatus
+  , 'getNotes, 'addNote, 'delNote])
