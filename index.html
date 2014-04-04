@@ -38,9 +38,14 @@ var habitDOM = function(name, status, callback) {
   if (status) result.addClass(status);
   return result; }
 
+var rpc = function (tok,req,cont) {
+  obj = {Request:[tok,req]}
+  var opts = {
+    type:"PUT", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
+  $.ajax(opts).success(function(s) { cont(s); }); }
+
 var addHabit = function(habit, cont) {
-  var body = {AddHabit:[tok,user,habit]};
-  return function() { rpc(body,cont); }; }
+  return function() { rpc(tok,{AddHabit:[user,habit]},cont); }; }
 
 var addHabitHandler = function() {
   var hab = document.getElementById("habit").value;
@@ -53,22 +58,12 @@ var json = function(s) {
   if (s) {return JSON.parse(s); }
   else {return {}}; }
 
-var rpc = function (obj,cont) {
-  var opts = {
-    type:"PUT", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
-  $.ajax(opts).success(function(s) { cont(s); }); }
-
 var delHabit = function(habit,cont) {
   return function() {
-    var body = {DelHabit:[tok,user,habit]}
-    rpc(body,cont); }}
+    rpc(tok,{DelHabit:[user,habit]},cont); }}
 
 var allHabits = function(cont) {
-  body = {ListHabits: [tok,user]};
-  console.log(body);
-  console.log(cont);
-  console.log(toJSON(body));
-  rpc(body,cont); }
+  rpc(tok,{ListHabits:user},cont); }
 
 var successSetFromAllHabits = function(habitSet, response) {
   var result = [];
@@ -82,8 +77,8 @@ var successSetFromAllHabits = function(habitSet, response) {
   return result; }
 
 var habitsStatus = function(habitSet, day, cont) {
-  body = {"GetHabitsStatus": [tok,user,day]}
-  rpc(body,function(r){ cont(r["STATUSES"]); }); }
+  rpc(tok,{"GetHabitsStatus":[user,day]},function(r){
+    cont(r["STATUSES"]); }); }
 
 var calcFailures = function(habitSet, successSet) {
   var result = [];
@@ -104,8 +99,7 @@ var setDone = function(day, habit, statusCode, cont) {
   else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
   else { throw "bad statusCode"; }
   return (function() {
-    body = {"SetHabitsStatus":[tok,user,day,habit,status]};
-    rpc(body, cont); }); }
+    rpc(tok, {"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
 
 var writeDOM = function(habitSet, statuses) {
   var node = $("#notices");
@@ -143,9 +137,7 @@ var writeDOM = function(habitSet, statuses) {
   var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
   var allHabitsP = $("<p>");
   for (var i in habitSet) {
-    // allHabitsP.append(" ");
     allHabitsP.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
-  // allHabitsP.append(" ");
   allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
   allHabitsForm.append(allHabitsP);
 
@@ -156,13 +148,13 @@ var writeDOM = function(habitSet, statuses) {
 
 user = prompt("Username","isan");
 (function () {
-	var pass = prompt("Password","");
-	rpc({"Register":[user,pass]},
-		function (response) {
-			tok=response["AUTH"];
-			update();
-		});
-	})();
+  var pass = prompt("Password","");
+  var obj = {"Register":[user,pass]}
+  var opts = {
+    type:"POST", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
+  $.ajax(opts).success(function(response) {
+    tok=response["AUTH"];
+    update(); }); })();
 
 </script>
 </body>

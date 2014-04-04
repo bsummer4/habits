@@ -12,6 +12,7 @@ import Data.Acid
 import Prelude (read)
 import System.Environment (getEnv)
 import Control.Monad
+import Data.Maybe (fromJust)
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -19,6 +20,7 @@ import qualified Network.Wai.Handler.WarpTLS as W
 import qualified Data.Aeson as J
 import qualified Data.Aeson.TH as J
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified State as DB
 import qualified Data.ByteString.Lazy.Char8 as ASCII
 import qualified Auth as Auth
@@ -33,18 +35,20 @@ data Resp
   | CHAINS (Map DB.Habit Int)
 
 data Req
-  = Register Auth.User Text
-  | GetHabitsStatus Auth.Token Auth.User Day
-  | SetHabitsStatus Auth.Token Auth.User Day DB.Habit DB.HabitStatus
-  | GetChains Auth.Token Auth.User Day
-  | AddHabit Auth.Token Auth.User DB.Habit
-  | DelHabit Auth.Token Auth.User DB.Habit
-  | ListHabits Auth.Token Auth.User
+  = Login Auth.User Text
+  | Register Auth.User Text
+  | Request Auth.Token RPC
 
-deriving instance Show Resp
-deriving instance Show Req
+data RPC
+  = GetHabitsStatus Auth.User Day
+  | SetHabitsStatus Auth.User Day DB.Habit DB.HabitStatus
+  | GetChains Auth.User Day
+  | AddHabit Auth.User DB.Habit
+  | DelHabit Auth.User DB.Habit
+  | ListHabits Auth.User
 
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Req)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''RPC)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Resp)
 
 instance J.ToJSON Day where
@@ -75,17 +79,17 @@ tokenUserMatch db t user = do
     Just u → user≡u
 
 authorized ∷ AcidState Auth.Registrations → Req → IO Bool
-authorized db r =
-  let check t u = tokenUserMatch db t u in
-    case r of
-      Register _ _ → return True
-      GetHabitsStatus t u _ → check t u
-      SetHabitsStatus t u _ _ _ → check t u
-      GetChains t u _ → check t u
-      AddHabit t u _ → check t u
-      DelHabit t u _ → check t u
-      ListHabits t u → check t u
-
+authorized db req = let check t u = tokenUserMatch db t u in
+  case req of
+    Register _ _ → return True
+    Login _ _ → return True
+    Request t r → case r of
+      GetHabitsStatus u _ → check t u
+      SetHabitsStatus u _ _ _ → check t u
+      GetChains u _ → check t u
+      AddHabit u _ → check t u
+      DelHabit u _ → check t u
+      ListHabits u → check t u
 
 -- [[HTTP Requests and Responses]]
 respond ∷ AcidState Auth.Registrations → AcidState DB.State → Req → IO Resp
@@ -93,25 +97,30 @@ respond authdb db req = do
   k ← ClientSession.getDefaultKey
   ok ← authorized authdb req
   if not ok then return NOT_ALLOWED else case req of
-    ListHabits _ user →
-      query db (DB.UserHabits user) >>= return ∘ HABITS
-    GetHabitsStatus _ user day →
-      query db (DB.HabitsStatus user day) >>= return ∘ STATUSES
-    GetChains _ user day → do
-      query db (DB.Chains user day) >>= return ∘ CHAINS
-    AddHabit _ user habit → do
-      update db (DB.AddHabit user habit) >> return OK
-    DelHabit _ user habit → do
-      update db (DB.DelHabit user habit) >> return OK
-    SetHabitsStatus _ user day habit status → do
-      update db (DB.SetHabitStatus user day habit status) >> return OK
+    Login user pass → do
+      AUTH <$> Auth.token k user (Auth.mkPass pass)
     Register user pass → do
       _ ← Auth.register authdb user (Auth.mkPass pass)
-      tok ← Auth.token k user (Auth.mkPass pass)
-      return $ AUTH tok
+      AUTH <$> Auth.token k user (Auth.mkPass pass)
+    Request _ r → case r of
+      ListHabits user →
+        query db (DB.UserHabits user) >>= return ∘ HABITS
+      GetHabitsStatus user day →
+        query db (DB.HabitsStatus user day) >>= return ∘ STATUSES
+      GetChains user day → do
+        query db (DB.Chains user day) >>= return ∘ CHAINS
+      AddHabit user habit → do
+        update db (DB.AddHabit user habit) >> return OK
+      DelHabit user habit → do
+        update db (DB.DelHabit user habit) >> return OK
+      SetHabitsStatus user day habit status → do
+        update db (DB.SetHabitStatus user day habit status) >> return OK
 
 html = [("Content-Type", "text/html")]
 json = [("Content-Type", "application/javascript")]
+
+jprint ∷ J.ToJSON j ⇒ j → IO ()
+jprint = ASCII.putStrLn ∘ J.encode
 
 app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
 app authdb db webreq =
@@ -126,7 +135,6 @@ app authdb db webreq =
       Just req → respond authdb db req
     ASCII.putStrLn $ J.encode resp
     return $ W.responseLBS W.status200 json $ J.encode resp
-
 main ∷ IO()
 main = do
   let tlsOpts = W.defaultTlsSettings
@@ -139,3 +147,33 @@ main = do
     createCheckpoint authdb
     closeAcidState db
     closeAcidState authdb
+
+forExample =
+  let
+    day = ModifiedJulianDay 1234
+    habit = fromJust $ DB.textHabit "hihi"
+    hstatus = DB.Success Nothing
+    hstatus2 = DB.Unspecified
+    reqEx =
+      [ Login "user" "pass"
+      , Register "user" "pass"
+      , Request "tok" $ SetHabitsStatus "isan" day habit hstatus
+      , Request "tok" $ SetHabitsStatus "isan" day habit hstatus2
+      , Request "tok" $ GetHabitsStatus "isan" day
+      , Request "tok" $ GetChains "isan" day
+      , Request "tok" $ AddHabit "isan" habit
+      , Request "tok" $ DelHabit "isan" habit
+      , Request "tok" $ ListHabits "isan"
+      ]
+
+    respEx =
+      [ OK
+      , AUTH "tok"
+      , STATUSES $ Map.singleton habit hstatus
+      , HABITS $ Set.singleton habit
+      , CHAINS $ Map.singleton habit 99
+      ]
+
+  in do
+    Control.Monad.mapM_ jprint reqEx
+    Control.Monad.mapM_ jprint respEx
