@@ -118,6 +118,17 @@ var setDone = function(day, habit, statusCode, cont) {
   return (function() {
     rpc(tok, {"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
 
+
+var strSortInPlace = function (x) {
+  x.sort(function(a,b){
+    var t1 = "".concat(a);
+    t1.toUpperCase();
+    var t2 = "".concat(b);
+    t2.toUpperCase();
+    console.log(t2);
+    return t1.localeCompare(t2); }); }
+
+
 var writeDOM = function(habitSet, statuses, notes) {
   var hdr = $("<h1>");
   hdr.addClass("header")
@@ -134,7 +145,7 @@ var writeDOM = function(habitSet, statuses, notes) {
 
   var habitList = $("<p>");
   var habitNames = Object.keys(statuses);
-  habitNames.sort();
+  strSortInPlace(habitNames);
   for (i in habitNames) {
     var status, alt, nm=habitNames[i];
     console.log(status);
@@ -149,7 +160,8 @@ var writeDOM = function(habitSet, statuses, notes) {
       setDone(day,json(toJSON(nm)),alt,update))); }
 
   console.log(notes)
-  notes.sort();
+  strSortInPlace(notes);
+  console.log(notes)
   var noteList = $("<p>");
   for (i in notes) {
     noteList.append(habitDOM(json(toJSON(notes[i])),"unspecified",delNote(notes[i],update)));
