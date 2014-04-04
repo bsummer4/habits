@@ -1,9 +1,19 @@
 This is a habit tracking webapp that I use as a self-improvement tool.
 
-TODO Show all chains upto today for successful habits.
-TODO Show all chains upto yesterday for successful habits.
-TODO Add a list of notes for each day.
-TODO Associate a double with each habit.
-TODO Get plots for each habit.
-TODO Use web sockets to get updates in real time.
-TODO Create a log-in page on the client, and store the token in local storage.
+# Backend
+TODO Copy data from the production server to use as a use-case.
+TODO Write migrations
+TODO Fill out the API to support all the features the datastore supports.
+
+# FrontEnd
+TODO Hack together a simple client that uses the entire API.
+	TODO Show all chains upto today for successful habits.
+	TODO Show all chains upto yesterday for successful habits.
+	TODO Add a list of notes for each day.
+	TODO Associate a double with each habit.
+	TODO Get plots for each habit.
+	TODO Create a log-in page on the client, and store the token in local storage.
+
+TODO Release an Alpha version
+	TODO Rewrite the entire front-end in a way that doesn't suck.
+	TODO Rework the protocol to use Web Sockets for real-time client updates.
