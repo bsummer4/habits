@@ -8,6 +8,17 @@
   span.notapplicable { background-color:yellow; border-color:darkyellow; }
   span.refutable:hover { background-color:yellow; }
   div.toplevel { max-width:400px; }
+
+  ul.note { padding: 0; list-style: none; }
+  li.note:hover { background-color:yellow; }
+  li.note {
+    padding: 3px;
+    margin: 2px;
+    display: inline-block;
+    width: 400px;
+    border-width: 0 0 0 2px;
+    border-style: solid; }
+
   h1.header { text-align:center; }
 </style></head><body>
 
@@ -30,6 +41,13 @@ var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
 var day = julian(new Date());
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont(); });}
 var member = function(i,a) { return !(-1 === a.indexOf(i)); }
+var noteDOM = function(name, callback) {
+  var result = $("<li>");
+  result.addClass("note")
+  result.text(name);
+  result.click(callback);
+  return result; }
+
 var habitDOM = function(name, status, callback) {
   var result = $("<span>");
   result.addClass("refutable")
@@ -162,9 +180,12 @@ var writeDOM = function(habitSet, statuses, notes) {
   console.log(notes)
   strSortInPlace(notes);
   console.log(notes)
-  var noteList = $("<p>");
+  var noteListFak = $("<p>");
+  var noteList = $("<ul>");
+  noteList.addClass("note");
+  noteListFak.append(noteList)
   for (i in notes) {
-    noteList.append(habitDOM(json(toJSON(notes[i])),"unspecified",delNote(notes[i],update)));
+    noteList.append(noteDOM(json(toJSON(notes[i])),delNote(notes[i],update)));
     noteList.append("<br>"); }
 
   var addNoteForm = $("<form name=\"x\" action=\"javascript:addNoteHandler()\">");
@@ -181,7 +202,7 @@ var writeDOM = function(habitSet, statuses, notes) {
   node.empty()
   node.append(hdr);
   node.append(habitList);
-  node.append(noteList);
+  node.append(noteListFak);
   node.append(addNoteForm);
   node.append($("<hr><hr><hr><hr>"));
   node.append(allHabitsForm); }
