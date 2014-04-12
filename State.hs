@@ -13,6 +13,7 @@ module State
   , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
   , Chains(Chains), HabitsStatus(HabitsStatus)
   , SetHabitStatus(SetHabitStatus)
+  , GetHistory30(GetHistory30)
   , GetNotes(GetNotes), AddNote(AddNote), DelNote(DelNote)
   ) where
 
@@ -114,8 +115,8 @@ fillStatusBlanks allHabits statuses = result
 -- An infinite list of DayStates going back in time from a given day.
 historyIterator ∷ Day → History → [DayState]
 historyIterator startDay history = iter startDay where
-  iter today = todayState : iter tomorrow where
-    tomorrow = addDays (-1) today
+  iter today = todayState : iter yesterday where
+    yesterday = addDays (-1) today
     todayState = getDay today history
 
 isSuccess ∷ HabitStatus → Bool
@@ -182,15 +183,22 @@ chains user day = do
   return $ chainLengths (uHabits usrSt) $ map successfulHabits $
     historyIterator day (uHistory usrSt)
 
+dayHabitStatus ∷ Day → UserState → Map Habit HabitStatus
+dayHabitStatus day usrSt =
+  let DayState _ habitStatuses = getDay day $ uHistory usrSt in
+    fillStatusBlanks (uHabits usrSt) habitStatuses
+
+getHistory30 ∷ User → Day → Query State (Map Day (Map Habit HabitStatus))
+getHistory30 u day = getHist <$> getUser u <$> ask where
+  getHist usrSt = Map.fromList [(d,dayHabitStatus d usrSt) | d←days]
+  days = [addDays (-age) day | age←[0..29]]
+
 habitsStatus ∷ User → Day → Query State (Map Habit HabitStatus)
-habitsStatus u day = do
-  usrSt ← ask >>= return ∘ getUser u
-  let DayState _ habitStatuses = getDay day $ uHistory usrSt
-  return $ fillStatusBlanks (uHabits usrSt) habitStatuses
+habitsStatus u day = dayHabitStatus day <$> getUser u <$> ask
 
 getNotes ∷ User → Day → Query State (Set Text)
 getNotes user day =
-	dayNotes <$> getDay day <$> uHistory <$> getUser user <$> ask
+  dayNotes <$> getDay day <$> uHistory <$> getUser user <$> ask
 
 delNote ∷ User → Day → Text → Update State ()
 delNote user day note = do
@@ -212,4 +220,5 @@ addNote user day note = do
 
 $(makeAcidic ''State
   [ 'addHabit, 'setHabitStatus, 'delHabit, 'userHabits, 'chains, 'habitsStatus
+  , 'getHistory30
   , 'getNotes, 'addNote, 'delNote])

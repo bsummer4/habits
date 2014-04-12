@@ -34,6 +34,7 @@ data Resp
   | HABITS (Set DB.Habit)
   | NOTES (Set Text)
   | CHAINS (Map DB.Habit Int)
+  | HISTORY (Map Day (Map DB.Habit DB.HabitStatus))
 
 data Req
   = Login Auth.User Text
@@ -53,6 +54,7 @@ data RQuery
   | GetChains Auth.User Day
   | GetNotes Auth.User Day
   | ListHabits Auth.User
+  | History30 Auth.User Day
 
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Req)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''RUpdate)
@@ -63,7 +65,16 @@ instance J.ToJSON Day where
   toJSON (ModifiedJulianDay x) = J.toJSON x
 
 instance J.FromJSON Day where
-  parseJSON x = J.parseJSON x >>= return∘ModifiedJulianDay
+  parseJSON x = ModifiedJulianDay <$> J.parseJSON x
+
+instance J.ToJSON α ⇒ J.ToJSON (Map Day α) where
+  toJSON x = J.toJSON $ Map.mapKeys unday x where
+    unday (ModifiedJulianDay x) = show x
+
+-- TODO Using ‘read’ here allows bad data to raise an error.
+instance J.FromJSON α ⇒ J.FromJSON (Map Day α) where
+  parseJSON x = Map.mapKeys toDay <$> J.parseJSON x where
+    toDay x = ModifiedJulianDay $ read x
 
 instance J.ToJSON α ⇒ J.ToJSON (Map DB.Habit α) where
   toJSON x = J.toJSON $ Map.mapKeys DB.habitText x
@@ -96,6 +107,7 @@ authorized db req = let check t u = tokenUserMatch db t u in
       GetChains u _ → check t u
       ListHabits u → check t u
       GetNotes u _ → check t u
+      History30 u _ → check t u
     Update t r → case r of
       SetHabitsStatus u _ _ _ → check t u
       AddHabit u _ → check t u
@@ -123,6 +135,8 @@ respond authdb db req = do
         query db (DB.Chains user day) >>= return ∘ CHAINS
       GetNotes user day →
         NOTES <$> query db (DB.GetNotes user day)
+      History30 user day →
+        HISTORY <$> query db (DB.GetHistory30 user day)
     Update _ r → case r of
       AddHabit user habit → do
         update db (DB.AddHabit user habit) >> return OK
@@ -188,6 +202,7 @@ forExample =
       , Update "tok" $ AddNote "isan" day "test note"
       , Update "tok" $ DelNote "isan" day "test note"
       , Query "tok" $ GetNotes "isan" day
+      , Query "tok" $ History30 "isan" day
       ]
 
     respEx =
