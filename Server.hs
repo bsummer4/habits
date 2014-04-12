@@ -38,21 +38,25 @@ data Resp
 data Req
   = Login Auth.User Text
   | Register Auth.User Text
-  | Request Auth.Token RPC
+  | Query Auth.Token RQuery
+  | Update Auth.Token RUpdate
 
-data RPC
-  = GetHabitsStatus Auth.User Day
-  | SetHabitsStatus Auth.User Day DB.Habit DB.HabitStatus
-  | GetChains Auth.User Day
-  | GetNotes Auth.User Day
+data RUpdate
+  = SetHabitsStatus Auth.User Day DB.Habit DB.HabitStatus
   | AddNote Auth.User Day Text
   | DelNote Auth.User Day Text
   | AddHabit Auth.User DB.Habit
   | DelHabit Auth.User DB.Habit
+
+data RQuery
+  = GetHabitsStatus Auth.User Day
+  | GetChains Auth.User Day
+  | GetNotes Auth.User Day
   | ListHabits Auth.User
 
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Req)
-$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''RPC)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''RUpdate)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''RQuery)
 $(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''Resp)
 
 instance J.ToJSON Day where
@@ -87,14 +91,15 @@ authorized db req = let check t u = tokenUserMatch db t u in
   case req of
     Register _ _ → return True
     Login _ _ → return True
-    Request t r → case r of
+    Query t r → case r of
       GetHabitsStatus u _ → check t u
-      SetHabitsStatus u _ _ _ → check t u
       GetChains u _ → check t u
-      AddHabit u _ → check t u
-      DelHabit u _ → check t u
       ListHabits u → check t u
       GetNotes u _ → check t u
+    Update t r → case r of
+      SetHabitsStatus u _ _ _ → check t u
+      AddHabit u _ → check t u
+      DelHabit u _ → check t u
       AddNote u _ _ → check t u
       DelNote u _ _ → check t u
 
@@ -109,21 +114,22 @@ respond authdb db req = do
     Register user pass → do
       _ ← Auth.register authdb user (Auth.mkPass pass)
       AUTH <$> Auth.token k user (Auth.mkPass pass)
-    Request _ r → case r of
+    Query _ r → case r of
       ListHabits user →
         query db (DB.UserHabits user) >>= return ∘ HABITS
       GetHabitsStatus user day →
         query db (DB.HabitsStatus user day) >>= return ∘ STATUSES
       GetChains user day → do
         query db (DB.Chains user day) >>= return ∘ CHAINS
+      GetNotes user day →
+        NOTES <$> query db (DB.GetNotes user day)
+    Update _ r → case r of
       AddHabit user habit → do
         update db (DB.AddHabit user habit) >> return OK
       DelHabit user habit → do
         update db (DB.DelHabit user habit) >> return OK
       SetHabitsStatus user day habit status → do
         update db (DB.SetHabitStatus user day habit status) >> return OK
-      GetNotes user day →
-        NOTES <$> query db (DB.GetNotes user day)
       AddNote user day note →
         update db (DB.AddNote user day note) >> return OK
       DelNote user day note →
@@ -172,16 +178,16 @@ forExample =
     reqEx =
       [ Login "user" "pass"
       , Register "user" "pass"
-      , Request "tok" $ SetHabitsStatus "isan" day habit hstatus
-      , Request "tok" $ SetHabitsStatus "isan" day habit hstatus2
-      , Request "tok" $ GetHabitsStatus "isan" day
-      , Request "tok" $ GetChains "isan" day
-      , Request "tok" $ AddHabit "isan" habit
-      , Request "tok" $ DelHabit "isan" habit
-      , Request "tok" $ ListHabits "isan"
-      , Request "tok" $ AddNote "isan" day "test note"
-      , Request "tok" $ DelNote "isan" day "test note"
-      , Request "tok" $ GetNotes "isan" day
+      , Update "tok" $ SetHabitsStatus "isan" day habit hstatus
+      , Update "tok" $ SetHabitsStatus "isan" day habit hstatus2
+      , Query "tok" $ GetHabitsStatus "isan" day
+      , Query "tok" $ GetChains "isan" day
+      , Update "tok" $ AddHabit "isan" habit
+      , Update "tok" $ DelHabit "isan" habit
+      , Query "tok" $ ListHabits "isan"
+      , Update "tok" $ AddNote "isan" day "test note"
+      , Update "tok" $ DelNote "isan" day "test note"
+      , Query "tok" $ GetNotes "isan" day
       ]
 
     respEx =

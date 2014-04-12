@@ -56,21 +56,22 @@ var habitDOM = function(name, status, callback) {
   if (status) result.addClass(status);
   return result; }
 
-var rpc = function (tok,req,cont) {
-  obj = {Request:[tok,req]}
+var rpc = function (tok,ty,req,cont) {
+  obj = {}
+  obj[ty] = [tok,req];
   var opts = {
     type:"PUT", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
   $.ajax(opts).success(function(s) { cont(s); }); }
 
 var addHabit = function(habit, cont) {
-  return function() { rpc(tok,{AddHabit:[user,habit]},cont); }; }
+  return function() { rpc(tok,"Update",{AddHabit:[user,habit]},cont); }; }
 
 var addHabitHandler = function() {
   var hab = document.getElementById("habit").value;
   addHabit(hab, update)(); }
 
 var addNote = function(note, cont) {
-  return function() { rpc(tok,{AddNote:[user,day,note]},cont); }; }
+  return function() { rpc(tok,"Update",{AddNote:[user,day,note]},cont); }; }
 
 var addNoteHandler = function() {
   var not = document.getElementById("note").value;
@@ -85,17 +86,17 @@ var json = function(s) {
 
 var delNote = function(note,cont) {
   return function() {
-    rpc(tok,{DelNote:[user,day,note]},cont); }}
+    rpc(tok,"Update",{DelNote:[user,day,note]},cont); }}
 
 var delHabit = function(habit,cont) {
   return function() {
-    rpc(tok,{DelHabit:[user,habit]},cont); }}
+    rpc(tok,"Update",{DelHabit:[user,habit]},cont); }}
 
 var getNotes = function(cont) {
-  rpc(tok,{GetNotes:[user,day]},cont); }
+  rpc(tok,"Query",{GetNotes:[user,day]},cont); }
 
 var allHabits = function(cont) {
-  rpc(tok,{ListHabits:user},cont); }
+  rpc(tok,"Query",{ListHabits:user},cont); }
 
 var successSetFromAllHabits = function(habitSet, response) {
   var result = [];
@@ -109,7 +110,7 @@ var successSetFromAllHabits = function(habitSet, response) {
   return result; }
 
 var habitsStatus = function(habitSet, day, cont) {
-  rpc(tok,{"GetHabitsStatus":[user,day]},function(r){
+  rpc(tok,"Query",{"GetHabitsStatus":[user,day]},function(r){
     cont(r["STATUSES"]); }); }
 
 var calcFailures = function(habitSet, successSet) {
@@ -134,7 +135,7 @@ var setDone = function(day, habit, statusCode, cont) {
   else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
   else { throw "bad statusCode"; }
   return (function() {
-    rpc(tok, {"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
+    rpc(tok,"Update",{"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
 
 
 var strSortInPlace = function (x) {
