@@ -6,7 +6,7 @@ module State
   ( Habit, State
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser
-  , emptyState,
+  , emptyState
   , userHabits, addHabit, delHabit, chains, habitsStatus, setHabitStatus
   , getHistory30, getNotes, addNote, delNote
   ) where
