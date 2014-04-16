@@ -221,16 +221,15 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   noteList.addClass("note");
   noteListFak.append(noteList)
   for (i in notes) {
-    noteList.append(noteDOM(json(toJSON(notes[i])),delNote(notes[i],update)));
-    noteList.append("<br>"); }
+    noteList.append(noteDOM(
+      json(toJSON(notes[i])),
+      function(x){console.log(x);})); }
 
   var addNoteForm = $("<form name=\"x\" action=\"javascript:addNoteHandler()\">");
   addNoteForm.append($("<input name=\"note\" value=\"Add a Note\" type=\"text\" id=\"note\">"));
 
   var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
   var allHabitsP = $("<p>");
-  for (var i in habitSet) {
-    allHabitsP.append(habitDOM(habitSet[i],null,null,delHabit(habitSet[i],update))); }
   allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
   allHabitsForm.append(allHabitsP);
 
@@ -238,9 +237,9 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   node.empty()
   node.append(hdr);
   node.append(habitList);
-  node.append(noteListFak);
   node.append(addNoteForm);
-  node.append($("<hr><hr><hr><hr>"));
+  node.append(noteListFak);
+  node.append($("<hr>"));
   node.append(allHabitsForm); }
 
 user = prompt("Username","isan");
