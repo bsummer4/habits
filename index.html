@@ -48,12 +48,13 @@ var noteDOM = function(name, callback) {
   result.click(callback);
   return result; }
 
-var habitDOM = function(name, status, callback) {
+var habitDOM = function(name, status, tail, callback) {
   var result = $("<span>");
   result.addClass("refutable")
   result.text(name);
   result.click(callback);
   if (status) result.addClass(status);
+  if (tail) result.append(tail);
   return result; }
 
 var rpc = function (tok,ty,req,cont) {
@@ -84,6 +85,9 @@ var json = function(s) {
   if (s) {return JSON.parse(s); }
   else {return {}}; }
 
+var getChains = function(cont) {
+  rpc(tok,"Query",{GetChains:[user,day]},cont); }
+
 var delNote = function(note,cont) {
   return function() {
     rpc(tok,"Update",{DelNote:[user,day,note]},cont); }}
@@ -101,12 +105,12 @@ var allHabits = function(cont) {
 var successSetFromAllHabits = function(habitSet, response) {
   var result = [];
   statuses = response["STATUSES"]
-  console.log(toJSON(habitSet));
-  console.log(toJSON(response));
+  // console.log(toJSON(habitSet));
+  // console.log(toJSON(response));
   for (habitName in statuses) {
     if ("Success" in statuses[habitName] && member(habitName,habitSet)) {
       result.push(habitName); }}
-  console.log(toJSON(result));
+  // console.log(toJSON(result));
   return result; }
 
 var habitsStatus = function(habitSet, day, cont) {
@@ -120,13 +124,14 @@ var calcFailures = function(habitSet, successSet) {
   return result; }
 
 var update = function() {
-  getNotes(function(noteResponse) {
-    console.log(noteResponse);
-    notes = noteResponse["NOTES"];
-    allHabits(function(response) {
-      var habitSet = response["HABITS"]
-      habitsStatus(habitSet, day, function(statuses) {
-        writeDOM(habitSet, statuses, notes); }); }); }); }
+  getChains(function(chainsResponse) {
+    chains = chainsResponse["CHAINS"]
+    getNotes(function(noteResponse) {
+      notes = noteResponse["NOTES"];
+      allHabits(function(response) {
+        var habitSet = response["HABITS"]
+        habitsStatus(habitSet, day, function(statuses) {
+          writeDOM(habitSet, statuses, notes, chains); }); }); }); }); }
 
 var setDone = function(day, habit, statusCode, cont) {
   var status;
@@ -144,11 +149,11 @@ var strSortInPlace = function (x) {
     t1.toUpperCase();
     var t2 = "".concat(b);
     t2.toUpperCase();
-    console.log(t2);
+    // console.log(t2);
     return t1.localeCompare(t2); }); }
 
 
-var writeDOM = function(habitSet, statuses, notes) {
+var writeDOM = function(habitSet, statuses, notes, chains) {
   var hdr = $("<h1>");
   hdr.addClass("header")
   var back = $("<span>&lt;&lt;</span>");
@@ -167,20 +172,23 @@ var writeDOM = function(habitSet, statuses, notes) {
   strSortInPlace(habitNames);
   for (i in habitNames) {
     var status, alt, nm=habitNames[i];
-    console.log(status);
+    // console.log(status);
     if ("Success" in statuses[nm])
       { status="success"; alt="failure"; }
     else if ("Failure" in statuses[nm])
       { status="failure"; alt="unspecified"; }
     else if ("Unspecified" in statuses[nm])
       { status="unspecified"; alt="success"; }
-    else { status="unspecified"; alt=true; }
-    habitList.append(habitDOM(json(toJSON(nm)),status,
+    else
+      { status="unspecified"; alt=true; }
+    var tail = null;
+    if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
+    habitList.append(habitDOM(json(toJSON(nm)),status,tail,
       setDone(day,json(toJSON(nm)),alt,update))); }
 
-  console.log(notes)
+  // console.log(notes)
   strSortInPlace(notes);
-  console.log(notes)
+  // console.log(notes)
   var noteListFak = $("<p>");
   var noteList = $("<ul>");
   noteList.addClass("note");
@@ -195,7 +203,7 @@ var writeDOM = function(habitSet, statuses, notes) {
   var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
   var allHabitsP = $("<p>");
   for (var i in habitSet) {
-    allHabitsP.append(habitDOM(habitSet[i],null,delHabit(habitSet[i],update))); }
+    allHabitsP.append(habitDOM(habitSet[i],null,null,delHabit(habitSet[i],update))); }
   allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
   allHabitsForm.append(allHabitsP);
 
