@@ -3,12 +3,10 @@
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 
--- TODO Make a separate request for loging in. Right now I just register every
---   time which is a hack.
-
 import ClassyPrelude
 import Prelude.Unicode
 import Data.Acid
+import Data.SafeCopy
 import Prelude (read)
 import System.Environment (getEnv)
 import Control.Monad
@@ -35,6 +33,7 @@ data Resp
   | NOTES (Set Text)
   | CHAINS (Map DB.Habit Int)
   | HISTORY (Map Day (Map DB.Habit DB.HabitStatus))
+  deriving Typeable
 
 data Req
   = Login Auth.User Text
@@ -87,6 +86,26 @@ instance J.FromJSON α ⇒ J.FromJSON (Map DB.Habit α) where
       Nothing → mzero
       Just kvs → return $ Map.fromList kvs
 
+$(deriveSafeCopy 0 'base ''Resp)
+$(deriveSafeCopy 0 'base ''RUpdate)
+$(deriveSafeCopy 0 'base ''RQuery)
+
+updateState ∷ RUpdate → Update DB.State ()
+updateState (SetHabitsStatus u d h status) = DB.setHabitStatus u d h status
+updateState (AddNote u d n) = DB.addNote u d n
+updateState (DelNote u d n) = DB.delNote u d n
+updateState (AddHabit u h) = DB.addHabit u h
+updateState (DelHabit u h) = DB.delHabit u h
+
+queryState ∷ RQuery → Query DB.State Resp
+queryState (GetHabitsStatus u d) = STATUSES <$> DB.habitsStatus u d
+queryState (GetChains u d) = CHAINS <$> DB.chains u d
+queryState (GetNotes u d) = NOTES <$> DB.getNotes u d
+queryState (ListHabits u) = HABITS <$> DB.userHabits u
+queryState (History30 u d) = HISTORY <$> DB.getHistory30 u d
+
+$(makeAcidic ''DB.State ['queryState, 'updateState])
+
 
 -- [[Authentication and Authorization]]
 tokenUserMatch ∷ AcidState Auth.Registrations → Auth.Token → Auth.User → IO Bool
@@ -98,22 +117,24 @@ tokenUserMatch db t user = do
     Just u → user≡u
 
 authorized ∷ AcidState Auth.Registrations → Req → IO Bool
-authorized db req = let check t u = tokenUserMatch db t u in
-  case req of
-    Register _ _ → return True
-    Login _ _ → return True
-    Query t r → case r of
-      GetHabitsStatus u _ → check t u
-      GetChains u _ → check t u
-      ListHabits u → check t u
-      GetNotes u _ → check t u
-      History30 u _ → check t u
-    Update t r → case r of
-      SetHabitsStatus u _ _ _ → check t u
-      AddHabit u _ → check t u
-      DelHabit u _ → check t u
-      AddNote u _ _ → check t u
-      DelNote u _ _ → check t u
+authorized db req =
+  let check t u = tokenUserMatch db t u in
+    case req of
+      Register _ _ → return True
+      Login _ _ → return True
+      Query t r → case r of
+        GetHabitsStatus u _ → check t u
+        GetChains u _ → check t u
+        ListHabits u → check t u
+        GetNotes u _ → check t u
+        History30 u _ → check t u
+      Update t r → case r of
+        SetHabitsStatus u _ _ _ → check t u
+        AddHabit u _ → check t u
+        DelHabit u _ → check t u
+        AddNote u _ _ → check t u
+        DelNote u _ _ → check t u
+
 
 -- [[HTTP Requests and Responses]]
 respond ∷ AcidState Auth.Registrations → AcidState DB.State → Req → IO Resp
@@ -126,28 +147,8 @@ respond authdb db req = do
     Register user pass → do
       _ ← Auth.register authdb user (Auth.mkPass pass)
       AUTH <$> Auth.token k user (Auth.mkPass pass)
-    Query _ r → case r of
-      ListHabits user →
-        query db (DB.UserHabits user) >>= return ∘ HABITS
-      GetHabitsStatus user day →
-        query db (DB.HabitsStatus user day) >>= return ∘ STATUSES
-      GetChains user day → do
-        query db (DB.Chains user day) >>= return ∘ CHAINS
-      GetNotes user day →
-        NOTES <$> query db (DB.GetNotes user day)
-      History30 user day →
-        HISTORY <$> query db (DB.GetHistory30 user day)
-    Update _ r → case r of
-      AddHabit user habit → do
-        update db (DB.AddHabit user habit) >> return OK
-      DelHabit user habit → do
-        update db (DB.DelHabit user habit) >> return OK
-      SetHabitsStatus user day habit status → do
-        update db (DB.SetHabitStatus user day habit status) >> return OK
-      AddNote user day note →
-        update db (DB.AddNote user day note) >> return OK
-      DelNote user day note →
-        update db (DB.DelNote user day note) >> return OK
+    Query _ r → query db (QueryState r)
+    Update _ r → update db (UpdateState r) >> return OK
 
 html = [("Content-Type", "text/html")]
 json = [("Content-Type", "application/javascript")]

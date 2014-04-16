@@ -1,6 +1,3 @@
--- TODO It would be cleaner to expose IO operations instead of exposing the
---   actual DB events
-
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
@@ -9,12 +6,9 @@ module State
   ( Habit, State
   , HabitStatus(Success, Failure, Unspecified)
   , textHabit, habitText, userText, textUser
-  , emptyState
-  , UserHabits(UserHabits), AddHabit(AddHabit), DelHabit(DelHabit)
-  , Chains(Chains), HabitsStatus(HabitsStatus)
-  , SetHabitStatus(SetHabitStatus)
-  , GetHistory30(GetHistory30)
-  , GetNotes(GetNotes), AddNote(AddNote), DelNote(DelNote)
+  , emptyState,
+  , userHabits, addHabit, delHabit, chains, habitsStatus, setHabitStatus
+  , getHistory30, getNotes, addNote, delNote
   ) where
 
 import ClassyPrelude
@@ -217,8 +211,3 @@ addNote user day note = do
   let dayState' = DayState (Set.insert note notes) adherance
   let history' = Map.insert day dayState' history
   put $ State $ Map.insert user (UserState habits history') users
-
-$(makeAcidic ''State
-  [ 'addHabit, 'setHabitStatus, 'delHabit, 'userHabits, 'chains, 'habitsStatus
-  , 'getHistory30
-  , 'getNotes, 'addNote, 'delNote])
