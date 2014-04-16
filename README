@@ -4,6 +4,20 @@ This is a habit tracking webapp that I use as a self-improvement tool.
 TODO Copy data from the production server to use as a use-case.
 TODO Write migrations
 TODO Fill out the API to support all the features the datastore supports.
+TODO Stop Treating unspecified HabitStatus as a break in the chain.
+  Successful habits increase the chain length.
+  Failed habits end the chain.
+  Unspecified habits should simply be skipped over.
+
+TODO Make ‘State.hs’ purely functional.
+  We only need two acid-state events.
+    A Query for Query requests
+    An update for Update requests.
+
+TODO Consider making notes markable with statuses.
+TODO Consider separating the number associated with a habit from it's status.
+  From a UI perspective, cycling the habit status should not delete
+    the number data.
 
 # FrontEnd
 TODO Hack together a simple client that uses the entire API.
