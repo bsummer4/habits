@@ -1,18 +1,20 @@
 <html><head><style>
-  ul#notices {
-    padding: 0;
-    }
+  div.toplevel { width:400px; margin:0 auto; }
+  ul#notices { padding: 0; }
+  h1.header { text-align:center; }
 
-  span.refutable {
+  .refutable {
     border-width:1; border-style:solid;
     padding:2px; margin:1px; display:inline-block; }
 
-  span.datechange { forground-color:blue; text-decoration:underline; }
-  span.success { background-color:#88ff88; border-color:#228822; }
-  span.failure { background-color:#ff8888; border-color:#882222; }
-  span.notapplicable { background-color:yellow; border-color:darkyellow; }
-  span.refutable:hover { background-color:yellow; }
-  div.toplevel { width:400px; margin:0 auto; }
+  .pairLeft { margin-right:0 }
+  .pairRight { margin-left:-2; }
+
+  .datechange { forground-color:blue; text-decoration:underline; }
+  .success { background-color:#88ff88; border-color:#228822; }
+  .failure { background-color:#ff8888; border-color:#882222; }
+  .notapplicable { background-color:yellow; border-color:darkyellow; }
+  .refutable:hover { background-color:yellow; }
 
   ul.note { padding: 0; list-style: none; }
   li.note:hover { background-color:yellow; }
@@ -24,7 +26,6 @@
     border-width: 0 2px 0 2px;
     border-style: solid; }
 
-  h1.header { text-align:center; }
 </style></head><body>
 
 <div class="toplevel">
@@ -158,6 +159,10 @@ var strSortInPlace = function (x) {
     return t1.localeCompare(t2); }); }
 
 
+var orWhat = function(n) {
+	if (n===null || n.length===0) { return '?'; }
+	return n; }
+
 var writeDOM = function(habitSet, statuses, notes, chains) {
   var hdr = $("<h1>");
   hdr.addClass("header")
@@ -176,20 +181,34 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   var habitNames = Object.keys(statuses);
   strSortInPlace(habitNames);
   for (i in habitNames) {
-    var status, alt, nm=habitNames[i];
+    var status, alt, nm=habitNames[i], num=null;
     // console.log(status);
     if ("Success" in statuses[nm])
-      { status="success"; alt="failure"; }
+      { status="success"; alt="failure"; num=orWhat(statuses[nm]["Success"]); }
     else if ("Failure" in statuses[nm])
-      { status="failure"; alt="unspecified"; }
+      { status="failure"; alt="unspecified"; num=orWhat(statuses[nm]["Failure"]); }
     else if ("Unspecified" in statuses[nm])
       { status="unspecified"; alt="success"; }
     else
       { status="unspecified"; alt=true; }
+    console.log(statuses[nm])
     var tail = null;
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
-    habitList.append(habitDOM(json(toJSON(nm)),status,tail,
-      setDone(day,json(toJSON(nm)),alt,update))); }
+    var habitThing = habitDOM(json(toJSON(nm)),status,tail,
+      setDone(day,json(toJSON(nm)),alt,update));
+    if (null !== num) { habitThing.addClass("pairLeft"); }
+    habitList.append(habitThing);
+    if (null !== num) {
+        console.log(nm);
+        console.log(status);
+        console.log(num);
+        var hack = $('<sub contenteditable="true">')
+        hack.text(num);
+        hack.addClass("refutable")
+        if (status) { hack.addClass(status); }
+        hack.addClass("pairRight");
+        habitList.append(hack); }
+    }
 
   // console.log(notes)
   strSortInPlace(notes);
