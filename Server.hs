@@ -11,6 +11,8 @@ import Prelude (read)
 import System.Environment (getEnv)
 import Control.Monad
 import Data.Maybe (fromJust)
+import Control.Monad.Reader (ask)
+import Control.Monad.State (put)
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -90,19 +92,21 @@ $(deriveSafeCopy 0 'base ''Resp)
 $(deriveSafeCopy 0 'base ''RUpdate)
 $(deriveSafeCopy 0 'base ''RQuery)
 
+fix f = (f <$> liftQuery ask) >>= put
+
 updateState ∷ RUpdate → Update DB.State ()
-updateState (SetHabitsStatus u d h status) = DB.setHabitStatus u d h status
-updateState (AddNote u d n) = DB.addNote u d n
-updateState (DelNote u d n) = DB.delNote u d n
-updateState (AddHabit u h) = DB.addHabit u h
-updateState (DelHabit u h) = DB.delHabit u h
+updateState (SetHabitsStatus u d h status) = fix(DB.setHabitStatus u d h status)
+updateState (AddNote u d n) = fix(DB.addNote u d n)
+updateState (DelNote u d n) = fix(DB.delNote u d n)
+updateState (AddHabit u h) = fix(DB.addHabit u h)
+updateState (DelHabit u h) = fix(DB.delHabit u h)
 
 queryState ∷ RQuery → Query DB.State Resp
-queryState (GetHabitsStatus u d) = STATUSES <$> DB.habitsStatus u d
-queryState (GetChains u d) = CHAINS <$> DB.chains u d
-queryState (GetNotes u d) = NOTES <$> DB.getNotes u d
-queryState (ListHabits u) = HABITS <$> DB.userHabits u
-queryState (History30 u d) = HISTORY <$> DB.getHistory30 u d
+queryState (GetHabitsStatus u d) = STATUSES <$> DB.habitsStatus u d <$> ask
+queryState (GetChains u d) = CHAINS <$> DB.chains u d <$> ask
+queryState (GetNotes u d) = NOTES <$> DB.getNotes u d <$> ask
+queryState (ListHabits u) = HABITS <$> DB.userHabits u <$> ask
+queryState (History30 u d) = HISTORY <$> DB.getHistory30 u d <$> ask
 
 $(makeAcidic ''DB.State ['queryState, 'updateState])
 

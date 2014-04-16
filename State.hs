@@ -13,11 +13,8 @@ module State
 
 import ClassyPrelude
 import Prelude.Unicode
-import Data.Acid
 import Data.SafeCopy
 import Prelude (read)
-import Control.Monad.State (put)
-import Control.Monad.Reader (ask)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -140,23 +137,21 @@ getDay ∷ Day → History → DayState
 getDay d hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
 
 
--- [[Acid State Operations]]
-userHabits ∷ User → Query State (Set Habit)
-userHabits user = ask >>= return ∘ uHabits ∘ getUser user
+-- [[State Operations]]
+userHabits ∷ User → State → Set Habit
+userHabits user = uHabits ∘ getUser user
 
-addHabit ∷ User → Habit → Update State ()
-addHabit user newhabit = do
-  st@(State users) ← liftQuery ask
+addHabit ∷ User → Habit → State → State
+addHabit user newhabit st@(State users) = do
   let usrSt = getUser user st
   let usrSt' = usrSt {uHabits = Set.insert newhabit $ uHabits usrSt}
-  put $ State $ Map.insert user usrSt' users
+  State $ Map.insert user usrSt' users
 
-delHabit ∷ User → Habit → Update State ()
-delHabit user habit = do
-  st@(State users) ← liftQuery ask
-  let UserState habits history = getUser user st
-  let habits' = Set.delete habit habits
-  put $ State $ Map.insert user (UserState habits' history) users
+delHabit ∷ User → Habit → State → State
+delHabit user habit st@(State users) =
+  let UserState habits history = getUser user st in
+  let habits' = Set.delete habit habits in
+    State $ Map.insert user (UserState habits' history) users
 
 updateHabitStatus ∷ Day → Habit → HabitStatus → History → History
 updateHabitStatus day habit status history = result where
@@ -164,50 +159,46 @@ updateHabitStatus day habit status history = result where
   dayState' = DayState notes (Map.insert habit status adherance)
   result = Map.insert day dayState' history
 
-setHabitStatus ∷ User → Day → Habit → HabitStatus → Update State ()
-setHabitStatus user day habit newStatus = do
-  st@(State users) ← liftQuery ask
-  let (UserState habits history) = getUser user st
-  let history' = updateHabitStatus day habit newStatus history
-  put $ State $ Map.insert user (UserState habits history') users
+setHabitStatus ∷ User → Day → Habit → HabitStatus → State → State
+setHabitStatus user day habit newStatus st@(State users) = do
+  let (UserState habits history) = getUser user st in
+    let history' = updateHabitStatus day habit newStatus history in
+      State $ Map.insert user (UserState habits history') users
 
-chains ∷ User → Day → Query State (Map Habit Int)
-chains user day = do
-  usrSt ← ask >>= return ∘ getUser user
-  return $ chainLengths (uHabits usrSt) $ map successfulHabits $
-    historyIterator day (uHistory usrSt)
+chains ∷ User → Day → State → Map Habit Int
+chains user day st = do
+  let usrSt = getUser user st in
+    chainLengths (uHabits usrSt) $ map successfulHabits $
+      historyIterator day (uHistory usrSt)
 
 dayHabitStatus ∷ Day → UserState → Map Habit HabitStatus
 dayHabitStatus day usrSt =
   let DayState _ habitStatuses = getDay day $ uHistory usrSt in
     fillStatusBlanks (uHabits usrSt) habitStatuses
 
-getHistory30 ∷ User → Day → Query State (Map Day (Map Habit HabitStatus))
-getHistory30 u day = getHist <$> getUser u <$> ask where
+getHistory30 ∷ User → Day → State → Map Day (Map Habit HabitStatus)
+getHistory30 u day st = getHist $ getUser u st where
   getHist usrSt = Map.fromList [(d,dayHabitStatus d usrSt) | d←days]
   days = [addDays (-age) day | age←[0..29]]
 
-habitsStatus ∷ User → Day → Query State (Map Habit HabitStatus)
-habitsStatus u day = dayHabitStatus day <$> getUser u <$> ask
+habitsStatus ∷ User → Day → State → Map Habit HabitStatus
+habitsStatus u day st = dayHabitStatus day $ getUser u st
 
-getNotes ∷ User → Day → Query State (Set Text)
-getNotes user day =
-  dayNotes <$> getDay day <$> uHistory <$> getUser user <$> ask
+getNotes ∷ User → Day → State → Set Text
+getNotes user day st = dayNotes $ getDay day $ uHistory $ getUser user st
 
-delNote ∷ User → Day → Text → Update State ()
-delNote user day note = do
-  st@(State users) ← liftQuery ask
-  let UserState habits history = getUser user st
-  let DayState notes adherance = getDay day history
-  let dayState' = DayState (Set.delete note notes) adherance
-  let history' = Map.insert day dayState' history
-  put $ State $ Map.insert user (UserState habits history') users
+delNote ∷ User → Day → Text → State → State
+delNote user day note st@(State users) =
+  let UserState habits history = getUser user st in
+  let DayState notes adherance = getDay day history in
+  let dayState' = DayState (Set.delete note notes) adherance in
+  let history' = Map.insert day dayState' history in
+    State $ Map.insert user (UserState habits history') users
 
-addNote ∷ User → Day → Text → Update State ()
-addNote user day note = do
-  st@(State users) ← liftQuery ask
-  let UserState habits history = getUser user st
-  let DayState notes adherance = getDay day history
-  let dayState' = DayState (Set.insert note notes) adherance
-  let history' = Map.insert day dayState' history
-  put $ State $ Map.insert user (UserState habits history') users
+addNote ∷ User → Day → Text → State → State
+addNote user day note st@(State users) =
+  let UserState habits history = getUser user st in
+  let DayState notes adherance = getDay day history in
+  let dayState' = DayState (Set.insert note notes) adherance in
+  let history' = Map.insert day dayState' history in
+    State $ Map.insert user (UserState habits history') users
