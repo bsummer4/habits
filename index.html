@@ -160,8 +160,8 @@ var strSortInPlace = function (x) {
 
 
 var orWhat = function(n) {
-	if (n===null || n.length===0) { return '?'; }
-	return n; }
+  if (n===null || n.length===0) { return '?'; }
+  return n; }
 
 var writeDOM = function(habitSet, statuses, notes, chains) {
   var hdr = $("<h1>");
@@ -194,20 +194,23 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     console.log(statuses[nm])
     var tail = null;
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
+    var nameMe = $('<span style="white-space:nowrap">');
     var habitThing = habitDOM(json(toJSON(nm)),status,tail,
       setDone(day,json(toJSON(nm)),alt,update));
     if (null !== num) { habitThing.addClass("pairLeft"); }
-    habitList.append(habitThing);
+    nameMe.append(habitThing);
     if (null !== num) {
-        console.log(nm);
-        console.log(status);
-        console.log(num);
-        var hack = $('<sub contenteditable="true">')
-        hack.text(num);
-        hack.addClass("refutable")
-        if (status) { hack.addClass(status); }
-        hack.addClass("pairRight");
-        habitList.append(hack); }
+      console.log(nm);
+      console.log(status);
+      console.log(num);
+      var hack = $('<sub contenteditable="true">')
+      hack.text(num);
+      hack.addClass("refutable")
+      if (status) { hack.addClass(status); }
+      hack.addClass("pairRight");
+      nameMe.append(hack); }
+    habitList.append(nameMe);
+    habitList.append($("<span>"));
     }
 
   // console.log(notes)
