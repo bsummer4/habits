@@ -7,12 +7,12 @@ TODO Fill out the API to support all the features the datastore supports.
 
 # FrontEnd
 TODO Hack together a simple client that uses the entire API.
-	TODO Show all chains upto today for successful habits.
-	TODO Show all chains upto yesterday for successful habits.
-	TODO Associate a double with each habit.
-	TODO Get plots for each habit.
-	TODO Create a log-in page on the client, and store the token in local storage.
+  TODO Show all chains upto today for successful habits.
+  TODO Show all chains upto yesterday for successful habits.
+  TODO Associate a double with each habit.
+  TODO Get plots for each habit.
+  TODO Create a log-in page on the client, and store the token in local storage.
 
 TODO Release an Alpha version
-	TODO Rewrite the entire front-end in a way that doesn't suck.
-	TODO Rework the protocol to use Web Sockets for real-time client updates.
+  TODO Rewrite the entire front-end in a way that doesn't suck.
+  TODO Rework the protocol to use Web Sockets for real-time client updates.
