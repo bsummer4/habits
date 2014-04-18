@@ -135,10 +135,10 @@ var update = function() {
         habitsStatus(habitSet, day, function(statuses) {
           writeDOM(habitSet, statuses, notes, chains); }); }); }); }); }
 
-var setDone = function(day, habit, statusCode, cont) {
+var setDone = function(day, habit, statusCode, num, cont) {
   var status;
-  if (statusCode == "success") { status={"Success":null}; }
-  else if (statusCode == "failure") { status={"Failure":null}; }
+  if (statusCode == "success") { status={"Success":num}; }
+  else if (statusCode == "failure") { status={"Failure":num}; }
   else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
   else { throw "bad statusCode"; }
   return (function() {
@@ -188,16 +188,20 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     var tail = null;
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
     var nameMe = $('<span style="white-space:nowrap">');
-    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,update));
+    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,null,update));
     if (null !== num) { habitThing.addClass("pairLeft"); }
     nameMe.append(habitThing);
     if (null !== num) {
       var hack = $('<sub contenteditable="true">')
+      console.log(this);
+      hack.blur(function(){
+        setDone(day,nm,status,parseFloat(this.textContent),update)()});
       hack.text(num);
       hack.addClass("refutable")
       if (status) { hack.addClass(status); }
       hack.addClass("pairRight");
       nameMe.append(hack); }
+
     habitList.append(nameMe);
     habitList.append($("<span>"));
     });
