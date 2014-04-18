@@ -71,14 +71,18 @@ var rpc = function (tok,ty,req,cont) {
   $.ajax(opts).success(function(s) { cont(s); }); }
 
 var addHabit = function(habit, cont) {
-  return function() { rpc(tok,"Update",{AddHabit:[user,habit]},cont); }; }
+  return (function(){
+    if (habit.match(/^[a-z]*$/)) {
+      rpc(tok,"Update",{AddHabit:[user,habit]},cont); }}); }
 
 var addHabitHandler = function() {
   var hab = document.getElementById("habit").value;
   addHabit(hab, update)(); }
 
 var addNote = function(note, cont) {
-  return function() { rpc(tok,"Update",{AddNote:[user,day,note]},cont); }; }
+  return (function(){
+    if (note) {
+      rpc(tok,"Update",{AddNote:[user,day,note]},cont); }}); }
 
 var addNoteHandler = function() {
   var not = document.getElementById("note").value;
@@ -213,34 +217,32 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     habitList.append($("<span>"));
     }
 
-  // console.log(notes)
+  habitList.append(
+    $('<input value="addhabit" style="width:60" type="text">')
+      .change(function(){addHabit(this.value, update)();}));
+
   strSortInPlace(notes);
-  // console.log(notes)
-  var noteListFak = $("<p>");
+  var noteListP = $("<p>");
   var noteList = $("<ul>");
   noteList.addClass("note");
-  noteListFak.append(noteList)
+  noteListP.append(noteList)
+
+  noteList.append(
+    $('<li>').append(
+      $('<input value="Add a Note" type="text">')
+        .change(function(x){ addNote(this.value, update)(); }))
+      .addClass("note"));
+
   for (i in notes) {
     noteList.append(noteDOM(
       json(toJSON(notes[i])),
       function(x){console.log(x);})); }
 
-  var addNoteForm = $("<form name=\"x\" action=\"javascript:addNoteHandler()\">");
-  addNoteForm.append($("<input name=\"note\" value=\"Add a Note\" type=\"text\" id=\"note\">"));
-
-  var allHabitsForm = $("<form name=\"x\" action=\"javascript:addHabitHandler()\">");
-  var allHabitsP = $("<p>");
-  allHabitsP.append($("<input name=\"habit\" value=\"Add a habit\" type=\"text\" id=\"habit\">"));
-  allHabitsForm.append(allHabitsP);
-
   var node = $("#notices");
   node.empty()
   node.append(hdr);
   node.append(habitList);
-  node.append(addNoteForm);
-  node.append(noteListFak);
-  node.append($("<hr>"));
-  node.append(allHabitsForm); }
+  node.append(noteListP); }
 
 user = prompt("Username","isan");
 (function () {
