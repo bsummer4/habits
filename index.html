@@ -35,6 +35,8 @@
   </div>
 
 <script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/lodash.js/2.4.1/lodash.min.js">
+  </script>
 <script>
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
@@ -112,26 +114,16 @@ var getNotes = function(cont) {
 var allHabits = function(cont) {
   rpc(tok,"Query",{ListHabits:user},cont); }
 
-var successSetFromAllHabits = function(habitSet, response) {
-  var result = [];
-  statuses = response["STATUSES"]
-  // console.log(toJSON(habitSet));
-  // console.log(toJSON(response));
-  for (habitName in statuses) {
-    if ("Success" in statuses[habitName] && member(habitName,habitSet)) {
-      result.push(habitName); }}
-  // console.log(toJSON(result));
-  return result; }
-
 var habitsStatus = function(habitSet, day, cont) {
   rpc(tok,"Query",{"GetHabitsStatus":[user,day]},function(r){
     cont(r["STATUSES"]); }); }
 
 var calcFailures = function(habitSet, successSet) {
-  var result = [];
-  for (i in habitSet) {
-    if (-1 === successSet.indexOf(habitSet[i])){ result.push(habitSet[i]); }}
-  return result; }
+  var result = []
+  _.forEach(habitSet, function(habit){
+    if (-1 === successSet.indexOf(habit))
+      result.push(habit) })
+  return result }
 
 var update = function() {
   getChains(function(chainsResponse) {
@@ -159,7 +151,6 @@ var strSortInPlace = function (x) {
     t1.toUpperCase();
     var t2 = "".concat(b);
     t2.toUpperCase();
-    // console.log(t2);
     return t1.localeCompare(t2); }); }
 
 
@@ -182,11 +173,10 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   hdr.append(forward);
 
   var habitList = $("<p>");
-  var habitNames = Object.keys(statuses);
+  var habitNames = _.keys(statuses);
   strSortInPlace(habitNames);
-  for (i in habitNames) {
-    var status, alt, nm=habitNames[i], num=null;
-    // console.log(status);
+  _.forEach(habitNames, function(nm){
+    var status, alt, num=null;
     if ("Success" in statuses[nm])
       { status="success"; alt="failure"; num=orWhat(statuses[nm]["Success"]); }
     else if ("Failure" in statuses[nm])
@@ -195,18 +185,13 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
       { status="unspecified"; alt="success"; }
     else
       { status="unspecified"; alt=true; }
-    console.log(statuses[nm])
     var tail = null;
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
     var nameMe = $('<span style="white-space:nowrap">');
-    var habitThing = habitDOM(json(toJSON(nm)),status,tail,
-      setDone(day,json(toJSON(nm)),alt,update));
+    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,update));
     if (null !== num) { habitThing.addClass("pairLeft"); }
     nameMe.append(habitThing);
     if (null !== num) {
-      console.log(nm);
-      console.log(status);
-      console.log(num);
       var hack = $('<sub contenteditable="true">')
       hack.text(num);
       hack.addClass("refutable")
@@ -215,7 +200,7 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
       nameMe.append(hack); }
     habitList.append(nameMe);
     habitList.append($("<span>"));
-    }
+    });
 
   habitList.append(
     $('<input value="addhabit" style="width:60" type="text">')
@@ -233,10 +218,9 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
         .change(function(x){ addNote(this.value, update)(); }))
       .addClass("note"));
 
-  for (i in notes) {
-    noteList.append(noteDOM(
-      json(toJSON(notes[i])),
-      function(x){console.log(x);})); }
+  _.forEach(notes, function(note){
+    noteList.append(noteDOM(note,
+      function(x){console.log(x)}))})
 
   var node = $("#notices");
   node.empty()
