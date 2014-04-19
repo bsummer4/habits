@@ -188,9 +188,9 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     var tail = null;
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
     var nameMe = $('<span style="white-space:nowrap">');
-    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,null,update));
     if (null !== num) { habitThing.addClass("pairLeft"); }
     nameMe.append(habitThing);
+    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,0,update));
     if (null !== num) {
       var hack = $('<sub contenteditable="true">')
       console.log(this);
