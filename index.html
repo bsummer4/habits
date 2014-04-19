@@ -39,84 +39,84 @@
   </script>
 <script>
 Date.prototype.modifiedJulianDay = function() {
-  return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587); }
+  return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
 
-var julian = function(d) { return d.modifiedJulianDay(); }
 var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
+var julian = function(d) { return d.modifiedJulianDay() }
 var epoch = julian(new Date(0))
-var fromJulian = function(j) { return new Date(86400000*(j-epoch)); }
-var day = julian(new Date());
-var shiftDate = function(n,cont){ return(function(){ day+=n; cont(); });}
-var member = function(i,a) { return !(-1 === a.indexOf(i)); }
+var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
+var day = julian(new Date())
+var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
+var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 var noteDOM = function(name, callback) {
-  var result = $("<li>");
+  var result = $("<li>")
   result.addClass("note")
-  result.text(name);
-  result.click(callback);
-  return result; }
+  result.text(name)
+  result.click(callback)
+  return result }
 
 var habitDOM = function(name, status, tail, callback) {
-  var result = $("<span>");
+  var result = $("<span>")
   result.addClass("refutable")
-  result.text(name);
-  result.click(callback);
-  if (status) result.addClass(status);
-  if (tail) result.append(tail);
-  return result; }
+  result.text(name)
+  result.click(callback)
+  if (status) result.addClass(status)
+  if (tail) result.append(tail)
+  return result }
 
 var rpc = function (tok,ty,req,cont) {
   obj = {}
-  obj[ty] = [tok,req];
+  obj[ty] = [tok,req]
   var opts = {
     type:"PUT", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
-  $.ajax(opts).success(function(s) { cont(s); }); }
+  $.ajax(opts).success(function(s) { cont(s) }) }
 
 var addHabit = function(habit, cont) {
   return (function(){
     if (habit.match(/^[a-z]*$/)) {
-      rpc(tok,"Update",{AddHabit:[user,habit]},cont); }}); }
+      rpc(tok,"Update",{AddHabit:[user,habit]},cont) }}) }
 
 var addHabitHandler = function() {
-  var hab = document.getElementById("habit").value;
-  addHabit(hab, update)(); }
+  var hab = document.getElementById("habit").value
+  addHabit(hab, update)() }
 
 var addNote = function(note, cont) {
   return (function(){
     if (note) {
-      rpc(tok,"Update",{AddNote:[user,day,note]},cont); }}); }
+      rpc(tok,"Update",{AddNote:[user,day,note]},cont) }}) }
 
 var addNoteHandler = function() {
-  var not = document.getElementById("note").value;
-  addNote(not, update)(); }
+  var not = document.getElementById("note").value
+  addNote(not, update)() }
 
-var trace = function(x) { console.log(x); return x; }
-var toJSON = function(s) { return JSON.stringify(s); }
+var trace = function(x) { console.log(x); return x }
+var toJSON = function(s) { return JSON.stringify(s) }
 
 var json = function(s) {
-  if (s) {return JSON.parse(s); }
-  else {return {}}; }
+  if (s) {return JSON.parse(s) }
+  else {return {}} }
 
 var getChains = function(cont) {
-  rpc(tok,"Query",{GetChains:[user,day]},cont); }
+  rpc(tok,"Query",{GetChains:[user,day]},cont) }
 
 var delNote = function(note,cont) {
   return function() {
-    rpc(tok,"Update",{DelNote:[user,day,note]},cont); }}
+    rpc(tok,"Update",{DelNote:[user,day,note]},cont) }}
 
 var delHabit = function(habit,cont) {
   return function() {
-    rpc(tok,"Update",{DelHabit:[user,habit]},cont); }}
+    rpc(tok,"Update",{DelHabit:[user,habit]},cont) }}
 
 var getNotes = function(cont) {
-  rpc(tok,"Query",{GetNotes:[user,day]},cont); }
+  rpc(tok,"Query",{GetNotes:[user,day]},cont) }
 
 var allHabits = function(cont) {
-  rpc(tok,"Query",{ListHabits:user},cont); }
+  rpc(tok,"Query",{ListHabits:user},cont) }
 
 var habitsStatus = function(habitSet, day, cont) {
   rpc(tok,"Query",{"GetHabitsStatus":[user,day]},function(r){
-    cont(r["STATUSES"]); }); }
+    cont(r["STATUSES"]) }) }
 
 var calcFailures = function(habitSet, successSet) {
   var result = []
@@ -129,104 +129,104 @@ var update = function() {
   getChains(function(chainsResponse) {
     chains = chainsResponse["CHAINS"]
     getNotes(function(noteResponse) {
-      notes = noteResponse["NOTES"];
+      notes = noteResponse["NOTES"]
       allHabits(function(response) {
         var habitSet = response["HABITS"]
         habitsStatus(habitSet, day, function(statuses) {
-          writeDOM(habitSet, statuses, notes, chains); }); }); }); }); }
+          writeDOM(habitSet, statuses, notes, chains) }) }) }) }) }
 
 var setDone = function(day, habit, statusCode, num, cont) {
-  var status;
-  if (statusCode == "success") { status={"Success":num}; }
-  else if (statusCode == "failure") { status={"Failure":num}; }
-  else if (statusCode == "unspecified") { status={"Unspecified":[]}; }
-  else { throw "bad statusCode"; }
+  var status
+  if (statusCode == "success") { status={"Success":num} }
+  else if (statusCode == "failure") { status={"Failure":num} }
+  else if (statusCode == "unspecified") { status={"Unspecified":[]} }
+  else { throw "bad statusCode" }
   return (function() {
-    rpc(tok,"Update",{"SetHabitsStatus":[user,day,habit,status]}, cont); }); }
+    rpc(tok,"Update",{"SetHabitsStatus":[user,day,habit,status]}, cont) }) }
 
 
 var strSortInPlace = function (x) {
   x.sort(function(a,b){
-    var t1 = "".concat(a);
-    t1.toUpperCase();
-    var t2 = "".concat(b);
-    t2.toUpperCase();
-    return t1.localeCompare(t2); }); }
+    var t1 = "".concat(a)
+    t1.toUpperCase()
+    var t2 = "".concat(b)
+    t2.toUpperCase()
+    return t1.localeCompare(t2) }) }
 
 
 var orWhat = function(n) {
-  if (n===null || n.length===0) { return null; }
-  return n; }
+  if (n===null || n.length===0) { return null }
+  return n }
 
 var writeDOM = function(habitSet, statuses, notes, chains) {
-  var hdr = $("<h1>");
+  var hdr = $("<h1>")
   hdr.addClass("header")
-  var back = $("<span>&lt;&lt;</span>");
-  var forward = $("<span>&gt;&gt;</span>");
-  back.addClass("datechange");
-  forward.addClass("datechange");
-  back.click(shiftDate(-1, update));
-  forward.click(shiftDate(1, update));
-  hdr.append(back);
+  var back = $("<span>&lt&lt</span>")
+  var forward = $("<span>&gt&gt</span>")
+  back.addClass("datechange")
+  forward.addClass("datechange")
+  back.click(shiftDate(-1, update))
+  forward.click(shiftDate(1, update))
+  hdr.append(back)
   var d = fromJulian(day)
-  hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ");
-  hdr.append(forward);
+  hdr.append(" "+d.getFullYear()+"/"+d.getMonth()+"/"+d.getDate()+" ")
+  hdr.append(forward)
 
-  var habitList = $("<p>");
-  var habitNames = _.keys(statuses);
-  strSortInPlace(habitNames);
+  var habitList = $("<p>")
+  var habitNames = _.keys(statuses)
+  strSortInPlace(habitNames)
   _.forEach(habitNames, function(nm){
-    var status, alt, num=null;
+    var status, alt, num=null
     if ("Success" in statuses[nm])
-      { status="success"; alt="failure"; num=orWhat(statuses[nm]["Success"]); }
+      { status="success"; alt="failure"; num=orWhat(statuses[nm]["Success"]) }
     else if ("Failure" in statuses[nm])
-      { status="failure"; alt="unspecified"; num=orWhat(statuses[nm]["Failure"]); }
+      { status="failure"; alt="unspecified"; num=orWhat(statuses[nm]["Failure"]) }
     else if ("Unspecified" in statuses[nm])
-      { status="unspecified"; alt="success"; }
+      { status="unspecified"; alt="success" }
     else
-      { status="unspecified"; alt=true; }
-    var tail = null;
+      { status="unspecified"; alt=true }
+    var tail = null
     if (nm in chains) { tail = $("<sup>"); tail.text(chains[nm]) }
-    var nameMe = $('<span style="white-space:nowrap">');
-    if (null !== num) { habitThing.addClass("pairLeft"); }
-    nameMe.append(habitThing);
-    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,0,update));
+    var nameMe = $('<span style="white-space:nowrap">')
+    var habitThing = habitDOM(nm, status, tail, setDone(day,nm,alt,0,update))
+    if (null !== num) { habitThing.addClass("pairLeft") }
+    nameMe.append(habitThing)
     if (null !== num) {
       var hack = $('<sub contenteditable="true">')
-      console.log(this);
+      console.log(this)
       hack.blur(function(){
-        setDone(day,nm,status,parseFloat(this.textContent),update)()});
-      hack.text(num);
+        setDone(day,nm,status,parseFloat(this.textContent),update)()})
+      hack.text(num)
       hack.addClass("refutable")
-      if (status) { hack.addClass(status); }
-      hack.addClass("pairRight");
-      nameMe.append(hack); }
+      if (status) { hack.addClass(status) }
+      hack.addClass("pairRight")
+      nameMe.append(hack) }
 
-    habitList.append(nameMe);
-    habitList.append($("<span>"));
-    });
+    habitList.append(nameMe)
+    habitList.append($("<span>"))
+    })
 
   habitList.append(
     $('<input value="addhabit" style="width:60" type="text">')
-      .change(function(){addHabit(this.value, update)();}));
+      .change(function(){addHabit(this.value, update)()}))
 
-  strSortInPlace(notes);
-  var noteListP = $("<p>");
-  var noteList = $("<ul>");
-  noteList.addClass("note");
+  strSortInPlace(notes)
+  var noteListP = $("<p>")
+  var noteList = $("<ul>")
+  noteList.addClass("note")
   noteListP.append(noteList)
 
   noteList.append(
     $('<li>').append(
       $('<input value="Add a Note" type="text">')
-        .change(function(x){ addNote(this.value, update)(); }))
-      .addClass("note"));
+        .change(function(x){ addNote(this.value, update)() }))
+      .addClass("note"))
 
   _.forEach(notes, function(note){
     noteList.append(noteDOM(note,
       function(x){console.log(x)}))})
 
-  var node = $("#notices");
+  var node = $("#notices")
   node.empty()
   node.append(hdr)
   node.append(habitList)
