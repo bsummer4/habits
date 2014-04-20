@@ -56,13 +56,21 @@ var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 var noteDOM = function(name, callback) {
   var result = $("<li>")
   result[0].setAttribute("contenteditable","true");
+  onEnter(result,function(){ result.blur() })
   result.blur(function(){
-    if (this.textContent == name) return;
-    delNote(name,addNote(normalizeNote(this.textContent),update))() })
+    var a = normalizeNote(name);
+    var b = normalizeNote(this.textContent)
+    if (a == b) return
+    delNote(name,addNote(b,update))() })
   result.addClass("note")
   result.text(name)
   result.click(callback)
   return result }
+
+onEnter = function(j,f) {
+  j.on("keyup",function(e){
+    if (e.keyCode == 13)
+      f() })}
 
 var habitDOM = function(name, status, tail, callback) {
   var result = $("<span>")
@@ -91,7 +99,7 @@ var addHabitHandler = function() {
 
 var addNote = function(note, cont) {
   return (function(){
-    if (!note || note == "") cont();
+    if (!note || note == "") cont()
     else rpc(tok,"Update",{AddNote:[user,day,note]},cont) }) }
 
 var addNoteHandler = function() {
@@ -202,6 +210,7 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     if (null !== num) {
       var hack = $('<sub contenteditable="true">')
       console.log(this)
+      onEnter(hack,function(){ hack.blur() })
       hack.blur(function(){
         setDone(day,nm,status,parseFloat(this.textContent),update)()})
       hack.text(num)
