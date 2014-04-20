@@ -41,6 +41,10 @@
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
 
+
+var normalizeNote = function(note) {
+  return note.replace(/\s+/g,' ').trim() }
+
 var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
 var julian = function(d) { return d.modifiedJulianDay() }
@@ -51,6 +55,10 @@ var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 var noteDOM = function(name, callback) {
   var result = $("<li>")
+  result[0].setAttribute("contenteditable","true");
+  result.blur(function(){
+    if (this.textContent == name) return;
+    delNote(name,addNote(normalizeNote(this.textContent),update))() })
   result.addClass("note")
   result.text(name)
   result.click(callback)
@@ -83,8 +91,8 @@ var addHabitHandler = function() {
 
 var addNote = function(note, cont) {
   return (function(){
-    if (note) {
-      rpc(tok,"Update",{AddNote:[user,day,note]},cont) }}) }
+    if (!note || note == "") cont();
+    else rpc(tok,"Update",{AddNote:[user,day,note]},cont) }) }
 
 var addNoteHandler = function() {
   var not = document.getElementById("note").value
