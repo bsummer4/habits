@@ -21,6 +21,7 @@
 
   input.note { background-color:inherit; }
   li.note:hover { background-color:yellow; }
+  input.note:focus { outline: 0; }
 
   li.note {
     padding: 3px;
@@ -57,11 +58,19 @@ var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
 var day = julian(new Date())
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
+
+onEnter = function(j,f) {
+  j.on("keyup",function(e){
+    if (e.keyCode == 13)
+      f() })
+  return j }
+
 var noteDOM = function(name) {
   return ($("<li>")
     .append($("<input>")
       .val(name)
       .addClass("note")
+      .on("keyup",function(e){ if (e.keyCode==13) this.blur(); })
       .change(function(){
         this.blur()
         var a = normalizeNote(name);
@@ -69,11 +78,6 @@ var noteDOM = function(name) {
         if (a == b) return
         delNote(name,addNote(b,update))() }))
     .addClass("note")) }
-
-onEnter = function(j,f) {
-  j.on("keyup",function(e){
-    if (e.keyCode == 13)
-      f() })}
 
 var habitDOM = function(name, status, tail, callback) {
   var result = $("<span>")
@@ -226,7 +230,11 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
     })
 
   habitList.append(
-    $('<input value="addhabit" style="width:60" type="text">')
+    $('<input type="text">')
+      .css("width","70")
+      .addClass("refutable")
+      .css("font-weight","bold")
+      .val("addhabit")
       .change(function(){addHabit(this.value, update)()}))
 
   strSortInPlace(notes)
@@ -238,7 +246,9 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   noteList.append(
     $('<li>').append(
       $('<input value="Add a Note" type="text">')
+        .addClass("note")
         .change(function(x){ addNote(this.value, update)() }))
+      .css("border-width","2")
       .addClass("note"))
 
   _.forEach(notes, function(note){
