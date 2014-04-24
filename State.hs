@@ -97,15 +97,18 @@ textUser t = if validUsername (decodeUtf8 t) then Just t else Nothing
 
 
 -- [[Operations]]
+infixr 5 ∪
+(∪) = Map.union
+
 user ∷ User → Lens' State UserState
 user u = lens get set where
-	get (State us) = fromMaybe (UserState Set.empty Map.empty) $ Map.lookup u us
-	set (State us) v = State $ Map.insert u v us
+  get (State us) = fromMaybe (UserState Set.empty Map.empty) $ Map.lookup u us
+  set (State us) v = State $ Map.insert u v us
 
 day ∷ Day → Lens' History DayState
 day d = lens get set where
-	get hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
-	set hist v = Map.insert d v hist
+  get hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
+  set hist v = Map.insert d v hist
 
 userHabits ∷ User → State → Set Habit
 userHabits u = (^. (user u∘uHabits))
@@ -130,7 +133,7 @@ addNote u d note = (user u ∘ uHistory ∘ day d ∘ dNotes) %~ Set.insert note
 
 successfulHabits ∷ DayState → Set Habit
 successfulHabits = Set.fromList ∘ Map.keys ∘ Map.filter isSuccess ∘ _dHabits
-	where isSuccess = \case {Success _ → True; _ → False }
+  where isSuccess = \case {Success _ → True; _ → False }
 
 updateHabitStatus ∷ Day → Habit → HabitStatus → History → History
 updateHabitStatus d habit status = (day d∘dHabits) %~ (Map.insert habit status)
@@ -138,24 +141,26 @@ updateHabitStatus d habit status = (day d∘dHabits) %~ (Map.insert habit status
 setHabitStatus ∷ User → Day → Habit → HabitStatus → State → State
 setHabitStatus u d h status = (user u∘uHistory) %~ updateHabitStatus d h status
 
+history ∷ Day → [Day]
+history d = d : history(addDays (-1) d)
+
+getHistory30 ∷ User → Day → State → Map Day (Map Habit HabitStatus)
+getHistory30 u day st = Map.fromList $
+  (\d→(d,dayHabitStatus d $ st^.user u)) <$> (take 30 $ history day)
+
+chains ∷ User → Day → State → Map Habit Int
+chains u d st = lengths where
+  lengths = chainLengths (st^.user u^.uHabits) $ map successfulHabits $ iter d
+  iter d = (st^.user u^.uHistory^.day d) : iter (addDays (-1) d) where
+
+-- In ‘fillBlanks’ it's important that (∪) is left-biased, so that it always
+-- chooses the actual habits over the unspecified ones.
 dayHabitStatus ∷ Day → UserState → Map Habit HabitStatus
-dayHabitStatus d st = fillStatusBlanks(st^.uHabits) (st^.uHistory∘day d∘dHabits)
-
--- ‘Map.union’ is left-biased, so things in ‘statuses’ are always used
--- if they exist.
-fillStatusBlanks ∷ Set Habit → Map Habit HabitStatus → Map Habit HabitStatus
-fillStatusBlanks allHabits statuses = result
+dayHabitStatus d st = fillBlanks (st^.uHabits) (st^.uHistory∘day d∘dHabits)
   where
-    result = Map.filterWithKey validHabit $ statuses `Map.union` bs
-    validHabit k _ = Set.member k allHabits
-    bs = Map.fromList $ map (\k→(k,Unspecified)) $ Set.toList allHabits
-
--- An infinite list of DayStates going back in time from a given day.
-historyIterator ∷ Day → History → [DayState]
-historyIterator startDay history = iter startDay where
-  iter today = todayState : iter yesterday where
-    yesterday = addDays (-1) today
-    todayState = history ^. day today
+    fillBlanks habits statuses = hFilter habits statuses ∪ unspecified habits
+    hFilter habits = Map.filterWithKey (\k _→Set.member k habits)
+    unspecified = Map.fromList ∘ map (\k→(k,Unspecified)) ∘ Set.toList
 
 chainLengths ∷ Set Habit → [Set Habit] → Map Habit Int
 chainLengths allHabits days = loop (allHabits,Map.empty) days
@@ -167,13 +172,3 @@ chainLengths allHabits days = loop (allHabits,Map.empty) days
           loop(stillUnbroken,incCounts stillUnbroken lengths) before
     incCounts keysToIncrement counts =
       Set.fold (Map.alter(Just∘(1+)∘fromMaybe 0)) counts keysToIncrement
-
-chains ∷ User → Day → State → Map Habit Int
-chains u day st = let usrSt = st ^. user u in
-  chainLengths (usrSt ^. uHabits) $ map successfulHabits $
-    historyIterator day (usrSt ^. uHistory)
-
-getHistory30 ∷ User → Day → State → Map Day (Map Habit HabitStatus)
-getHistory30 u day st = getHist $ st ^. user u where
-  getHist usrSt = Map.fromList [(d,dayHabitStatus d usrSt) | d←days]
-  days = [addDays (-age) day | age←[0..29]]
