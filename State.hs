@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, LambdaCase #-}
 
 module State
   ( Habit, State
@@ -69,7 +69,7 @@ instance J.ToJSON ByteString where
   toJSON = J.toJSON ∘ decodeUtf8
 
 
--- [[Smart Constructors]]
+-- [[Constructors]]
 emptyState ∷ State
 emptyState = State Map.empty
 
@@ -96,7 +96,51 @@ textUser ∷ ByteString → Maybe ByteString
 textUser t = if validUsername (decodeUtf8 t) then Just t else Nothing
 
 
--- [[Utility Functions]]
+-- [[Operations]]
+user ∷ User → Lens' State UserState
+user u = lens get set where
+	get (State us) = fromMaybe (UserState Set.empty Map.empty) $ Map.lookup u us
+	set (State us) v = State $ Map.insert u v us
+
+day ∷ Day → Lens' History DayState
+day d = lens get set where
+	get hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
+	set hist v = Map.insert d v hist
+
+userHabits ∷ User → State → Set Habit
+userHabits u = (^. (user u∘uHabits))
+
+addHabit ∷ User → Habit → State → State
+addHabit u newhabit = (user u∘uHabits) %~ Set.insert newhabit
+
+delHabit ∷ User → Habit → State → State
+delHabit u newhabit = (user u∘uHabits) %~ Set.delete newhabit
+
+habitsStatus ∷ User → Day → State → Map Habit HabitStatus
+habitsStatus u d = dayHabitStatus d ∘ (^. user u)
+
+getNotes ∷ User → Day → State → Set Text
+getNotes u d = view (user u ∘ uHistory ∘ day d ∘ dNotes)
+
+delNote ∷ User → Day → Text → State → State
+delNote u d note = (user u ∘ uHistory ∘ day d ∘ dNotes) %~ Set.delete note
+
+addNote ∷ User → Day → Text → State → State
+addNote u d note = (user u ∘ uHistory ∘ day d ∘ dNotes) %~ Set.insert note
+
+successfulHabits ∷ DayState → Set Habit
+successfulHabits = Set.fromList ∘ Map.keys ∘ Map.filter isSuccess ∘ _dHabits
+	where isSuccess = \case {Success _ → True; _ → False }
+
+updateHabitStatus ∷ Day → Habit → HabitStatus → History → History
+updateHabitStatus d habit status = (day d∘dHabits) %~ (Map.insert habit status)
+
+setHabitStatus ∷ User → Day → Habit → HabitStatus → State → State
+setHabitStatus u d h status = (user u∘uHistory) %~ updateHabitStatus d h status
+
+dayHabitStatus ∷ Day → UserState → Map Habit HabitStatus
+dayHabitStatus d st = fillStatusBlanks(st^.uHabits) (st^.uHistory∘day d∘dHabits)
+
 -- ‘Map.union’ is left-biased, so things in ‘statuses’ are always used
 -- if they exist.
 fillStatusBlanks ∷ Set Habit → Map Habit HabitStatus → Map Habit HabitStatus
@@ -111,15 +155,7 @@ historyIterator ∷ Day → History → [DayState]
 historyIterator startDay history = iter startDay where
   iter today = todayState : iter yesterday where
     yesterday = addDays (-1) today
-    todayState = getDay today history
-
-isSuccess ∷ HabitStatus → Bool
-isSuccess (Success _) = True
-isSuccess _ = False
-
-successfulHabits ∷ DayState → Set Habit
-successfulHabits (DayState _ habits) =
-  Set.fromList $ Map.keys $ Map.filter isSuccess habits
+    todayState = history ^. day today
 
 chainLengths ∷ Set Habit → [Set Habit] → Map Habit Int
 chainLengths allHabits days = loop (allHabits,Map.empty) days
@@ -132,74 +168,12 @@ chainLengths allHabits days = loop (allHabits,Map.empty) days
     incCounts keysToIncrement counts =
       Set.fold (Map.alter(Just∘(1+)∘fromMaybe 0)) counts keysToIncrement
 
-user ∷ User → Lens' State UserState
-user u = lens get set where
-	get (State us) = fromMaybe (UserState Set.empty Map.empty) $ Map.lookup u us
-	set (State us) v = State $ Map.insert u v us
-
-getUser ∷ User → State → UserState
-getUser u st = st^.user u
-
-getDay ∷ Day → History → DayState
-getDay d hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
-
-
--- [[State Operations]]
-userHabits ∷ User → State → Set Habit
-userHabits u = (^. (user u∘uHabits))
-
-addHabit ∷ User → Habit → State → State
-addHabit u newhabit = (user u∘uHabits) %~ Set.insert newhabit
-
-delHabit ∷ User → Habit → State → State
-delHabit u newhabit = (user u∘uHabits) %~ Set.delete newhabit
-
-updateHabitStatus ∷ Day → Habit → HabitStatus → History → History
-updateHabitStatus day habit status history = result where
-  DayState notes adherance = getDay day history
-  dayState' = DayState notes (Map.insert habit status adherance)
-  result = Map.insert day dayState' history
-
-setHabitStatus ∷ User → Day → Habit → HabitStatus → State → State
-setHabitStatus user day habit newStatus st@(State users) = do
-  let (UserState habits history) = getUser user st in
-    let history' = updateHabitStatus day habit newStatus history in
-      State $ Map.insert user (UserState habits history') users
-
 chains ∷ User → Day → State → Map Habit Int
-chains user day st = do
-  let usrSt = getUser user st in
-    chainLengths (_uHabits usrSt) $ map successfulHabits $
-      historyIterator day (_uHistory usrSt)
-
-dayHabitStatus ∷ Day → UserState → Map Habit HabitStatus
-dayHabitStatus day usrSt =
-  let DayState _ habitStatuses = getDay day $ _uHistory usrSt in
-    fillStatusBlanks (_uHabits usrSt) habitStatuses
+chains u day st = let usrSt = st ^. user u in
+  chainLengths (usrSt ^. uHabits) $ map successfulHabits $
+    historyIterator day (usrSt ^. uHistory)
 
 getHistory30 ∷ User → Day → State → Map Day (Map Habit HabitStatus)
-getHistory30 u day st = getHist $ getUser u st where
+getHistory30 u day st = getHist $ st ^. user u where
   getHist usrSt = Map.fromList [(d,dayHabitStatus d usrSt) | d←days]
   days = [addDays (-age) day | age←[0..29]]
-
-habitsStatus ∷ User → Day → State → Map Habit HabitStatus
-habitsStatus u day st = dayHabitStatus day $ getUser u st
-
-getNotes ∷ User → Day → State → Set Text
-getNotes user day st = _dNotes $ getDay day $ _uHistory $ getUser user st
-
-day ∷ Day → Lens' History DayState
-day d = lens get set where
-	get hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
-	set hist v = Map.insert d v hist
-
-delNote ∷ User → Day → Text → State → State
-delNote u d note = (user u ∘ uHistory ∘ day d ∘ dNotes) %~ Set.delete note
-
-addNote ∷ User → Day → Text → State → State
-addNote user day note st@(State users) =
-  let UserState habits history = getUser user st in
-  let DayState notes adherance = getDay day history in
-  let dayState' = DayState (Set.insert note notes) adherance in
-  let history' = Map.insert day dayState' history in
-    State $ Map.insert user (UserState habits history') users
