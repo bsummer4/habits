@@ -1,32 +1,10 @@
 This is a habit tracking webapp that I use as a self-improvement tool.
 
-# Backend
-TODO Copy data from the production server to use as a use-case.
-TODO Write migrations
-TODO Fill out the API to support all the features the datastore supports.
-TODO Stop Treating unspecified HabitStatus as a break in the chain.
-  Successful habits increase the chain length.
-  Failed habits end the chain.
-  Unspecified habits should simply be skipped over.
-
-TODO Make ‘State.hs’ purely functional.
-  We only need two acid-state events.
-    A Query for Query requests
-    An update for Update requests.
-
-TODO Consider making notes markable with statuses.
-TODO Consider separating the number associated with a habit from it's status.
-  From a UI perspective, cycling the habit status should not delete
-    the number data.
-
-# FrontEnd
-TODO Hack together a simple client that uses the entire API.
-  TODO Show all chains upto today for successful habits.
-  TODO Show all chains upto yesterday for successful habits.
-  TODO Associate a double with each habit.
-  TODO Get plots for each habit.
-  TODO Create a log-in page on the client, and store the token in local storage.
-
+TODO Migrate the data on the production server.
+TODO Separating the number associated with a habit from it's status.
+TODO Show all chains upto yesterday for unspecified habits.
+TODO Add a view that shows the status history for the last 30 days.
+TODO Add a view that shows plots of this numeric values for the last 30 days.
+TODO Add a log-in view on the client.
+TODO Start a client rewrite using React.
 TODO Release an Alpha version
-  TODO Rewrite the entire front-end in a way that doesn't suck.
-  TODO Rework the protocol to use Web Sockets for real-time client updates.

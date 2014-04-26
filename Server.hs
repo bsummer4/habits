@@ -215,7 +215,7 @@ forExample =
       , AUTH "tok"
       , STATUSES $ Map.singleton habit hstatus
       , HABITS $ Set.singleton habit
-      , NOTES $ Set.singleton "TODO it"
+      , NOTES $ Set.singleton "do it"
       , CHAINS $ Map.singleton habit 99
       ]
 
