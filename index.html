@@ -1,5 +1,5 @@
 <html><head><style>
-  div.toplevel { width:400px; margin:0 auto; }
+  div.toplevel { max-width:480; width:95%; margin:0 auto; }
   ul#notices { padding: 0; }
   h1.header { text-align:center; }
 
@@ -10,12 +10,19 @@
   .pairLeft { margin-right:0 }
   .pairRight { margin-left:-2; }
 
+  .history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }
+  table.history { margin:0 auto; }
+  div.historyTD { min-width:13; }
+  td.history { border: 0px solid }
+
   .datechange { forground-color:blue; text-decoration:underline; }
   .success { background-color:#88ff88; border-color:#228822; }
   .failure { background-color:#ff8888; border-color:#882222; }
+  td.unspecified { border: 0px solid #9999dd; background-color:#ddddff }
   .refutable:hover { background-color:yellow; }
+  td.history { border: 0px solid white }
 
-  input.note { width:388px; border-width:0; }
+  input.note { width:100%; border-width:0; }
   ul.note { padding: 0; list-style: none; }
 
   input.note { background-color:inherit; }
@@ -26,11 +33,15 @@
     padding: 3px;
     margin: 2px;
     display: inline-block;
-    width: 388px;
+    width: 97%;
     border-width: 0 2px 0 2px;
     border-style: solid; }
 
-</style></head><body>
+</style>
+
+<meta name="viewport" content="width=device-width, user-scalable=no">
+
+</head><body>
 
 <div class="toplevel">
   <ul id="notices"></ul>
@@ -119,6 +130,9 @@ var json = function(s) {
   if (s) {return JSON.parse(s) }
   else {return {}} }
 
+var getHistory30 = function(cont) {
+  rpc(tok,"Query",{History30:[user,day]},cont) }
+
 var getChains = function(cont) {
   rpc(tok,"Query",{GetChains:[user,day]},cont) }
 
@@ -148,14 +162,16 @@ var calcFailures = function(habitSet, successSet) {
   return result }
 
 var update = function() {
-  getChains(function(chainsResponse) {
-    chains = chainsResponse["CHAINS"]
-    getNotes(function(noteResponse) {
-      notes = noteResponse["NOTES"]
-      allHabits(function(response) {
-        var habitSet = response["HABITS"]
-        habitsStatus(habitSet, day, function(statuses) {
-          writeDOM(habitSet, statuses, notes, chains) }) }) }) }) }
+  getHistory30(function(historyResponse) {
+    var history = historyResponse["HISTORY"];
+    getChains(function(chainsResponse) {
+      chains = chainsResponse["CHAINS"]
+      getNotes(function(noteResponse) {
+        notes = noteResponse["NOTES"]
+        allHabits(function(response) {
+          var habitSet = response["HABITS"]
+          habitsStatus(habitSet, day, function(statuses) {
+            writeDOM(habitSet, statuses, notes, chains, history) }) }) }) }) }) }
 
 var setDone = function(day, habit, statusCode, num, cont) {
   var status
@@ -180,7 +196,13 @@ var orWhat = function(n) {
   if (n===null || n.length===0) { return null }
   return n }
 
-var writeDOM = function(habitSet, statuses, notes, chains) {
+var habitClass = function(habit){
+	if ("Success" in habit) return "success";
+	if ("Failure" in habit) return "failure";
+	if ("Unspecified" in habit) return "unspecified";
+	return null; }
+
+var writeDOM = function(habitSet, statuses, notes, chains, history) {
   var hdr = $("<h1>")
   hdr.addClass("header")
   var back = $("<span>&lt&lt</span>")
@@ -253,10 +275,35 @@ var writeDOM = function(habitSet, statuses, notes, chains) {
   _.forEach(notes, function(note){
     noteList.append(noteDOM(note))})
 
+  var historyDays = _.keys(history)
+  historyDays.sort()
+	while (historyDays.length > 14)
+		historyDays.shift()
+  console.log(historyDays)
+
+  var historyTbl = $("<table>")
+    .addClass("history")
+
+  _.forEach(habitNames, function(habit){
+    var r = $("<tr>")
+    r.append($("<td>")
+			.css({width:100})
+			.append($("<span>")
+     	 .text(habit)))
+    _.forEach(historyDays,function(day){
+      r.append($("<td>")
+        .addClass(habitClass(history[day][habit]))
+        .addClass("refutable")
+        .addClass("history")
+        .append($("<div>")
+          .addClass("historyTD")))})
+    historyTbl.append(r); })
+
   var node = $("#notices")
   node.empty()
   node.append(hdr)
   node.append(habitList)
+  node.append(historyTbl)
   node.append(noteListP) }
 
 var alreadyAuthenticated = (user && tok)
