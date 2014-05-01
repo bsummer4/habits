@@ -12,7 +12,7 @@
 
   .history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }
   table.history { margin:0 auto; }
-  div.historyTD { min-width:13; }
+  div.historyTD { min-width:13; min-height:13 }
   td.history { border: 0px solid }
 
   .datechange { forground-color:blue; text-decoration:underline; }
@@ -37,6 +37,23 @@
     border-width: 0 2px 0 2px;
     border-style: solid; }
 
+  div.tooltip::before {
+    content: attr(data-tip);
+    font-size: 10px;
+    position:absolute;
+    z-index: 999;
+    white-space:nowrap;
+    bottom:9999px;
+    left: 50%;
+    background:#000;
+    color:#e0e0e0;
+    padding:0px 7px;
+    line-height: 24px;
+    height: 24px;
+    opacity: 0;
+    transition:opacity 0.4s ease-out; }
+
+  div.tooltip:hover::before { opacity: 1; bottom:-35px; }
 </style>
 
 <meta name="viewport" content="width=device-width, user-scalable=no">
@@ -277,8 +294,8 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
 
   var historyDays = _.keys(history)
   historyDays.sort()
-	while (historyDays.length > 14)
-		historyDays.shift()
+  while (historyDays.length > 21)
+    historyDays.shift()
   console.log(historyDays)
 
   var historyTbl = $("<table>")
@@ -286,25 +303,23 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
 
   _.forEach(habitNames, function(habit){
     var r = $("<tr>")
-    r.append($("<td>")
-			.css({width:100})
-			.append($("<span>")
-     	 .text(habit)))
     _.forEach(historyDays,function(day){
       r.append($("<td>")
         .addClass(habitClass(history[day][habit]))
         .addClass("refutable")
         .addClass("history")
         .append($("<div>")
+          .attr("data-tip",(habit))
+          .addClass("tooltip")
           .addClass("historyTD")))})
-    historyTbl.append(r); })
+    historyTbl.append(r) })
 
   var node = $("#notices")
   node.empty()
   node.append(hdr)
   node.append(habitList)
-  node.append(historyTbl)
-  node.append(noteListP) }
+  node.append(noteListP)
+  node.append(historyTbl) }
 
 var alreadyAuthenticated = (user && tok)
 if (alreadyAuthenticated) { update() } else {
