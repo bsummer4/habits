@@ -49,6 +49,7 @@ data RUpdate
   | DelNote Auth.User Day Text
   | AddHabit Auth.User DB.Habit
   | DelHabit Auth.User DB.Habit
+  | RenameHabit Auth.User DB.Habit DB.Habit
 
 data RQuery
   = GetHabitsStatus Auth.User Day
@@ -100,6 +101,7 @@ updateState (AddNote u d n) = fix(DB.addNote u d n)
 updateState (DelNote u d n) = fix(DB.delNote u d n)
 updateState (AddHabit u h) = fix(DB.addHabit u h)
 updateState (DelHabit u h) = fix(DB.delHabit u h)
+updateState (RenameHabit u old new) = fix(DB.renameHabit u old new)
 
 queryState ∷ RQuery → Query DB.State Resp
 queryState (GetHabitsStatus u d) = STATUSES <$> DB.habitsStatus u d <$> ask
@@ -136,6 +138,7 @@ authorized db req =
         SetHabitsStatus u _ _ _ → check t u
         AddHabit u _ → check t u
         DelHabit u _ → check t u
+        RenameHabit u _ _ → check t u
         AddNote u _ _ → check t u
         DelNote u _ _ → check t u
 

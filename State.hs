@@ -9,7 +9,7 @@ module State
   , textHabit, habitText, userText, textUser
   , emptyState
   , userHabits, addHabit, delHabit, chains, habitsStatus, setHabitStatus
-  , getHistory30, getNotes, addNote, delNote
+  , getHistory30, getNotes, addNote, delNote, renameHabit
   ) where
 
 import ClassyPrelude
@@ -118,6 +118,15 @@ addHabit u newhabit = (user u∘uHabits) %~ Set.insert newhabit
 
 delHabit ∷ User → Habit → State → State
 delHabit u newhabit = (user u∘uHabits) %~ Set.delete newhabit
+
+renameHabit ∷ User → Habit → Habit → State → State
+renameHabit u old new =
+  ((user u∘uHistory)%~rehist) ∘ addHabit u new ∘ delHabit u old
+  where
+    rehist = Map.map $ dHabits%~rename
+    rename adh = case Map.lookup old adh of
+      Nothing → adh
+      Just status → Map.insert new status adh
 
 habitsStatus ∷ User → Day → State → Map Habit HabitStatus
 habitsStatus u d = dayHabitStatus d ∘ (^. user u)
