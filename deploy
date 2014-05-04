@@ -1,0 +1,43 @@
+# This script builds an executable to be uploaded to the production server. We
+# assume that this is run on a fresh (Ubuntu Server 13.10) installation, and
+# that we are uploading to another server running the same distribution.
+
+set -e
+export PATH="$HOME/.cabal/bin:$PATH"
+
+install-dependencies () {
+  # TODO We actually depend on ghc 7.8.....
+  sudo apt-get update
+  sudo apt-get upgrade
+  sudo apt-get install haskell-platform git realpath
+  cabal update
+  cabal install cabal-install
+  }
+
+build-sandbox () {
+  cabal sandbox init
+  cabal install --only-dependencies
+  }
+
+mkpackage () {
+  uploadto=$1
+  echo $uploadto
+  test -n "$uploadto" || {
+    echo -n "Where put the tarball? scp syntax please.";
+    read uploadto; }
+
+  deploy=$(mktemp -dp.)
+  trap "rm -rf $deploy" EXIT
+  tarfile=$(mktemp -p.)
+  touch $tarfile
+  trap "rm -f $tarfile" EXIT
+
+  cabal build
+  cp dist/build/habits/habits $deploy/habits
+  (cd $deploy; openssl aes-256-cbc -d <../secret.tar.xz.aes | unxz | tar x)
+  cp index.html $deploy/index.html
+  (cd $deploy; tar cz .) >$tarfile
+  scp $tarfile $uploadto
+  }
+
+$*
