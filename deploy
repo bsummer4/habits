@@ -35,7 +35,6 @@ mkpackage () {
   cabal build
   cp dist/build/habits/habits $deploy/habits
   (cd $deploy; openssl aes-256-cbc -d <../secret.tar.xz.aes | unxz | tar x)
-  cp index.html $deploy/index.html
   (cd $deploy; tar cz .) >$tarfile
   scp $tarfile $uploadto
   }

@@ -2,6 +2,9 @@
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-unused-binds #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 import ClassyPrelude
 import Prelude.Unicode
@@ -13,6 +16,7 @@ import Control.Monad
 import Data.Maybe (fromJust)
 import Control.Monad.Reader (ask)
 import Control.Monad.State (put)
+import Language.Haskell.TH
 import qualified Network.HTTP.Types as W
 import qualified Network.Wai as W
 import qualified Network.Wai.Handler.Warp as W
@@ -22,6 +26,7 @@ import qualified Data.Aeson.TH as J
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified State as DB
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as ASCII
 import qualified Auth as Auth
 import qualified Web.ClientSession as ClientSession
@@ -71,12 +76,12 @@ instance J.FromJSON Day where
 
 instance J.ToJSON α ⇒ J.ToJSON (Map Day α) where
   toJSON x = J.toJSON $ Map.mapKeys unday x where
-    unday (ModifiedJulianDay x) = show x
+    unday (ModifiedJulianDay d) = show d
 
 -- TODO Using ‘read’ here allows bad data to raise an error.
 instance J.FromJSON α ⇒ J.FromJSON (Map Day α) where
   parseJSON x = Map.mapKeys toDay <$> J.parseJSON x where
-    toDay x = ModifiedJulianDay $ read x
+    toDay d = ModifiedJulianDay $ read d
 
 instance J.ToJSON α ⇒ J.ToJSON (Map DB.Habit α) where
   toJSON x = J.toJSON $ Map.mapKeys DB.habitText x
@@ -160,13 +165,13 @@ respond authdb db req = do
 html = [("Content-Type", "text/html")]
 json = [("Content-Type", "application/javascript")]
 
-jprint ∷ J.ToJSON j ⇒ j → IO ()
-jprint = ASCII.putStrLn ∘ J.encode
+htmlfile ∷ LBS.ByteString
+htmlfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./index.html"))
 
 app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
 app authdb db webreq =
   if "GET" ≡ W.requestMethod webreq
-  then return $ W.responseFile W.status200 html "./index.html" Nothing
+  then return $ W.responseLBS W.status200 html htmlfile
   else do
     body ← W.lazyRequestBody webreq
     putStrLn "=========="
@@ -177,7 +182,7 @@ app authdb db webreq =
     ASCII.putStrLn $ J.encode resp
     return $ W.responseLBS W.status200 json $ J.encode resp
 
-main ∷ IO()
+main ∷ IO ()
 main = do
   let tlsOpts = W.defaultTlsSettings
   port ← getEnv "PORT" >>= return∘read
@@ -193,6 +198,8 @@ main = do
 forExample ∷ IO ()
 forExample =
   let
+    jprint ∷ (J.ToJSON j) ⇒ j → IO()
+    jprint = ASCII.putStrLn ∘ J.encode
     day = ModifiedJulianDay 1234
     habit = fromJust $ DB.textHabit "hihi"
     hstatus = DB.Success Nothing
