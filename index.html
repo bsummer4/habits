@@ -17,10 +17,17 @@
 
   .datechange { forground-color:blue; text-decoration:underline; }
   .success { background-color:#88ff88; border-color:#228822; }
+
   .failure { background-color:#ff8888; border-color:#882222; }
-  td.unspecified { border: 0px solid #9999dd; background-color:#ddddff }
+  .unspecified { border: 0px solid #9999dd; background-color:#ddddff }
   .refutable:hover { background-color:yellow; }
+
   td.history { border: 0px solid white }
+
+  rect.success { fill: green; }
+  rect.failure { fill: red; }
+  rect.unspecified { fill: #ddddff; }
+  rect.refutable:hover { fill: yellow; }
 
   input.note { width:100%; border-width:0; }
   ul.note { padding: 0; list-style: none; }
@@ -294,32 +301,62 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
 
   var historyDays = _.keys(history)
   historyDays.sort()
-  while (historyDays.length > 21)
+  while (historyDays.length > 30)
     historyDays.shift()
   console.log(historyDays)
 
-  var historyTbl = $("<table>")
-    .addClass("history")
+	var percent = function(x) { return (x*100) + "%" }
+	height = (10*habitNames.length)
+  var historySvgDiv = $('<div>')
+		.css({"width":"100%"})
+		.css({"height":0})
+		.css({"padding-bottom":percent(height/300)})
+		// This padding-bottom thing is a hack to set the height relative to the
+		// width.
 
+  var historySvg = $('<svg>')
+		.attr("width","100%")
+		.attr("height","100%")
+		.attr("viewbox","0 0 300 " + height)
+
+  var i=0,j=0;
   _.forEach(habitNames, function(habit){
-    var r = $("<tr>")
+		j=0;
     _.forEach(historyDays,function(day){
-      r.append($("<td>")
-        .addClass(habitClass(history[day][habit]))
-        .addClass("refutable")
-        .addClass("history")
-        .append($("<div>")
-          .attr("data-tip",(habit))
-          .addClass("tooltip")
-          .addClass("historyTD")))})
-    historyTbl.append(r) })
+			var x=j*10, y=i*10;
+			console.log(i,j,x,100-y);
+      historySvg.append($("<rect>")
+        .attr("x",x).attr("y",y)
+        .attr("width",10).attr("height",10)
+				.addClass(habitClass(history[day][habit]))
+				.addClass("refutable"))
+			j++; })
+		i++ })
+	historySvgDiv.append(historySvg)
+	historySvgDiv.html(historySvgDiv.html())
+
+  // var historyTbl = $("<table>")
+    // .addClass("history")
+
+  // _.forEach(habitNames, function(habit){
+    // var r = $("<tr>")
+    // _.forEach(historyDays,function(day){
+      // r.append($("<td>")
+        // .addClass(habitClass(history[day][habit]))
+        // .addClass("refutable")
+        // .addClass("history")
+        // .append($("<div>")
+          // .attr("data-tip",(habit))
+          // .addClass("tooltip")
+          // .addClass("historyTD")))})
+    // historyTbl.append(r) })
 
   var node = $("#notices")
   node.empty()
   node.append(hdr)
   node.append(habitList)
   node.append(noteListP)
-  node.append(historyTbl) }
+  node.append(historySvgDiv) }
 
 var alreadyAuthenticated = (user && tok)
 if (alreadyAuthenticated) { update() } else {
