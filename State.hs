@@ -2,6 +2,8 @@
 {-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
 {-# LANGUAGE RankNTypes, LambdaCase #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module State
   ( Habit, State
@@ -10,12 +12,12 @@ module State
   , emptyState
   , userHabits, addHabit, delHabit, chains, habitsStatus, setHabitStatus
   , getHistory30, getNotes, addNote, delNote, renameHabit
+  , Msg(..), respond
   ) where
 
 import ClassyPrelude
 import Prelude.Unicode
 import Data.SafeCopy
-import Prelude (read)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -41,13 +43,19 @@ data UserState = UserState
   , _uHistory∷History
   }
 
+data Msg
+	= SetHabits User (Set Habit)
+	| AddHabit User Habit
+	| DelHabit User Habit
+	| RenameHabit User Habit Habit
+  | AddNote User Day Text
+  | DelNote User Day Text
+  | SetNotes User Day (Set Text)
+	| SetDay User Day DayState
+  | SetHabitStatus User Day Habit HabitStatus
+
 deriving instance Eq Habit
 deriving instance Ord Habit
-deriving instance Show DayState
-deriving instance Show Habit
-deriving instance Show HabitStatus
-deriving instance Show State
-deriving instance Show UserState
 deriving instance Typeable Habit
 deriving instance Typeable HabitStatus
 deriving instance Typeable State
@@ -56,17 +64,32 @@ $(deriveSafeCopy 0 'base ''Habit)
 $(deriveSafeCopy 0 'base ''HabitStatus)
 $(deriveSafeCopy 0 'base ''UserState)
 $(deriveSafeCopy 0 'base ''DayState)
+$(deriveSafeCopy 0 'base ''Msg)
 $(deriveSafeCopy 3 'base ''State)
-$(J.deriveJSON J.defaultOptions ''Habit)
-$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
 $(makeLenses ''UserState)
 $(makeLenses ''DayState)
+
+$(J.deriveJSON J.defaultOptions ''Habit)
+$(J.deriveJSON J.defaultOptions{J.sumEncoding=J.ObjectWithSingleField} ''HabitStatus)
 
 instance J.FromJSON ByteString where
   parseJSON o = J.parseJSON o >>= return∘encodeUtf8
 
 instance J.ToJSON ByteString where
   toJSON = J.toJSON ∘ decodeUtf8
+
+
+-- [[Messages]]
+respond ∷ Msg → State → State
+respond (SetHabits u names) = setHabits u names
+respond (AddHabit u name) = addHabit u name
+respond (DelHabit u name) = delHabit u name
+respond (RenameHabit u new old) = renameHabit u new old
+respond (AddNote u d note) = addNote u d note
+respond (DelNote u d note) = delNote u d note
+respond (SetNotes u d notes) = setNotes u d notes
+respond (SetDay u d st) = setDay u d st
+respond (SetHabitStatus u d h status) = setHabitStatus u d h status
 
 
 -- [[Constructors]]
@@ -101,17 +124,20 @@ infixr 5 ∪
 (∪) = Map.union
 
 user ∷ User → Lens' State UserState
-user u = lens get set where
+user u = lens get update where
   get (State us) = fromMaybe (UserState Set.empty Map.empty) $ Map.lookup u us
-  set (State us) v = State $ Map.insert u v us
+  update (State us) v = State $ Map.insert u v us
 
 day ∷ Day → Lens' History DayState
-day d = lens get set where
+day d = lens get update where
   get hist = fromMaybe (DayState Set.empty Map.empty) $ Map.lookup d hist
-  set hist v = Map.insert d v hist
+  update hist v = Map.insert d v hist
 
 userHabits ∷ User → State → Set Habit
 userHabits u = (^. (user u∘uHabits))
+
+setHabits ∷ User → (Set Habit) → State → State
+setHabits u habits = (user u∘uHabits) .~ habits
 
 addHabit ∷ User → Habit → State → State
 addHabit u newhabit = (user u∘uHabits) %~ Set.insert newhabit
@@ -134,6 +160,9 @@ habitsStatus u d = dayHabitStatus d ∘ (^. user u)
 getNotes ∷ User → Day → State → Set Text
 getNotes u d = view (user u ∘ uHistory ∘ day d ∘ dNotes)
 
+setNotes ∷ User → Day → (Set Text) → State → State
+setNotes u d notes = (user u ∘ uHistory ∘ day d ∘ dNotes) .~ notes
+
 delNote ∷ User → Day → Text → State → State
 delNote u d note = (user u ∘ uHistory ∘ day d ∘ dNotes) %~ Set.delete note
 
@@ -150,17 +179,21 @@ updateHabitStatus d habit status = (day d∘dHabits) %~ (Map.insert habit status
 setHabitStatus ∷ User → Day → Habit → HabitStatus → State → State
 setHabitStatus u d h status = (user u∘uHistory) %~ updateHabitStatus d h status
 
+setDay ∷ User → Day → DayState → State → State
+setDay u d daySt = (user u ∘ uHistory ∘ day d) .~ daySt
+
 history ∷ Day → [Day]
 history d = d : history(addDays (-1) d)
 
 getHistory30 ∷ User → Day → State → Map Day (Map Habit HabitStatus)
-getHistory30 u day st = Map.fromList $
-  (\d→(d,dayHabitStatus d $ st^.user u)) <$> (take 30 $ history day)
+getHistory30 u start st = Map.fromList $
+  (\d→(d,dayHabitStatus d $ st^.user u)) <$> (take 30 $ history start)
 
 chains ∷ User → Day → State → Map Habit Int
-chains u d st = lengths where
-  lengths = chainLengths (st^.user u^.uHabits) $ map successfulHabits $ iter d
+chains u startDay st = lengths where
   iter d = (st^.user u^.uHistory^.day d) : iter (addDays (-1) d) where
+  lengths = chainLengths (st^.user u^.uHabits) $
+    map successfulHabits $ iter startDay
 
 -- In ‘fillBlanks’ it's important that (∪) is left-biased, so that it always
 -- chooses the actual habits over the unspecified ones.
