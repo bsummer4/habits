@@ -1,0 +1,66 @@
+div.toplevel { max-width:480; width:95%; margin:0 auto; }
+ul#notices { padding: 0; }
+h1.header { text-align:center; }
+
+.refutable {
+  border-width:1; border-style:solid;
+  padding:2px; margin:1px; display:inline-block; }
+
+	rect.refutable {
+		stroke-width: 0.1;
+		stroke: black; }
+
+.pairLeft { margin-right:0 }
+.pairRight { margin-left:-2; }
+
+.history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }
+table.history { margin:0 auto; }
+div.historyTD { min-width:13; min-height:13 }
+td.history { border: 0px solid }
+
+.datechange { forground-color:blue; text-decoration:underline; }
+.success { background-color:#88ff88; border-color:#228822; }
+
+.failure { background-color:#ff8888; border-color:#882222; }
+.unspecified { border: 0px solid #9999dd; background-color:#ddddff }
+.refutable:hover { background-color:yellow; }
+
+td.history { border: 0px solid white }
+
+rect.success { fill: green; }
+rect.failure { fill: red; }
+rect.unspecified { fill: #ddddff; }
+rect.refutable:hover { fill: yellow; }
+
+input.note { width:100%; border-width:0; }
+ul.note { padding: 0; list-style: none; }
+
+input.note { background-color:inherit; }
+li.note:hover { background-color:yellow; }
+input.note:focus { outline: 0; }
+
+li.note {
+  padding: 3px;
+  margin: 2px;
+  display: inline-block;
+  width: 97%;
+  border-width: 0 2px 0 2px;
+  border-style: solid; }
+
+div.tooltip::before {
+  content: attr(data-tip);
+  font-size: 10px;
+  position:absolute;
+  z-index: 999;
+  white-space:nowrap;
+  bottom:9999px;
+  left: 50%;
+  background:#000;
+  color:#e0e0e0;
+  padding:0px 7px;
+  line-height: 24px;
+  height: 24px;
+  opacity: 0;
+  transition:opacity 0.4s ease-out; }
+
+div.tooltip:hover::before { opacity: 1; bottom:-35px; }

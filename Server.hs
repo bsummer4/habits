@@ -163,15 +163,26 @@ respond authdb db req = do
     Update _ r → update db (UpdateState r) >> return OK
 
 html = [("Content-Type", "text/html")]
-json = [("Content-Type", "application/javascript")]
+js = [("Content-Type", "application/javascript")]
+css = [("Content-Type", "text/css")]
 
 htmlfile ∷ LBS.ByteString
-htmlfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./index.html"))
+htmlfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.html"))
+
+cssfile ∷ LBS.ByteString
+cssfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.css"))
+
+jsfile ∷ LBS.ByteString
+jsfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.js"))
 
 app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
 app authdb db webreq =
   if "GET" ≡ W.requestMethod webreq
-  then return $ W.responseLBS W.status200 html htmlfile
+  then case W.pathInfo webreq of
+    [] → return $ W.responseLBS W.ok200 html htmlfile
+    ["client.css"] → return $ W.responseLBS W.ok200 css cssfile
+    ["client.js"] → return $ W.responseLBS W.ok200 js jsfile
+    _ → return $ W.responseLBS W.notFound404 [] ""
   else do
     body ← W.lazyRequestBody webreq
     putStrLn "=========="
@@ -180,7 +191,7 @@ app authdb db webreq =
       Nothing → return MALFORMED_REQUEST
       Just req → respond authdb db req
     ASCII.putStrLn $ J.encode resp
-    return $ W.responseLBS W.status200 json $ J.encode resp
+    return $ W.responseLBS W.ok200 js $ J.encode resp
 
 main ∷ IO ()
 main = do

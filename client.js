@@ -1,89 +1,5 @@
-<html><head><style>
-  div.toplevel { max-width:480; width:95%; margin:0 auto; }
-  ul#notices { padding: 0; }
-  h1.header { text-align:center; }
-
-  .refutable {
-    border-width:1; border-style:solid;
-    padding:2px; margin:1px; display:inline-block; }
-
-	rect.refutable {
-		stroke-width: 0.1;
-		stroke: black; }
-
-  .pairLeft { margin-right:0 }
-  .pairRight { margin-left:-2; }
-
-  .history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }
-  table.history { margin:0 auto; }
-  div.historyTD { min-width:13; min-height:13 }
-  td.history { border: 0px solid }
-
-  .datechange { forground-color:blue; text-decoration:underline; }
-  .success { background-color:#88ff88; border-color:#228822; }
-
-  .failure { background-color:#ff8888; border-color:#882222; }
-  .unspecified { border: 0px solid #9999dd; background-color:#ddddff }
-  .refutable:hover { background-color:yellow; }
-
-  td.history { border: 0px solid white }
-
-  rect.success { fill: green; }
-  rect.failure { fill: red; }
-  rect.unspecified { fill: #ddddff; }
-  rect.refutable:hover { fill: yellow; }
-
-  input.note { width:100%; border-width:0; }
-  ul.note { padding: 0; list-style: none; }
-
-  input.note { background-color:inherit; }
-  li.note:hover { background-color:yellow; }
-  input.note:focus { outline: 0; }
-
-  li.note {
-    padding: 3px;
-    margin: 2px;
-    display: inline-block;
-    width: 97%;
-    border-width: 0 2px 0 2px;
-    border-style: solid; }
-
-  div.tooltip::before {
-    content: attr(data-tip);
-    font-size: 10px;
-    position:absolute;
-    z-index: 999;
-    white-space:nowrap;
-    bottom:9999px;
-    left: 50%;
-    background:#000;
-    color:#e0e0e0;
-    padding:0px 7px;
-    line-height: 24px;
-    height: 24px;
-    opacity: 0;
-    transition:opacity 0.4s ease-out; }
-
-  div.tooltip:hover::before { opacity: 1; bottom:-35px; }
-</style>
-
-<meta name="viewport" content="width=device-width, user-scalable=no">
-
-</head><body>
-
-<div class="toplevel">
-  <ul id="notices"></ul>
-  <br><br>
-  <ul id="habitList"></ul>
-  </div>
-
-<script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
-<script src="//cdnjs.cloudflare.com/ajax/libs/lodash.js/2.4.1/lodash.min.js">
-  </script>
-<script>
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
-
 
 var normalizeNote = function(note) {
   return note.replace(/\s+/g,' ').trim() }
@@ -225,10 +141,10 @@ var orWhat = function(n) {
   return n }
 
 var habitClass = function(habit){
-	if ("Success" in habit) return "success";
-	if ("Failure" in habit) return "failure";
-	if ("Unspecified" in habit) return "unspecified";
-	return null; }
+  if ("Success" in habit) return "success";
+  if ("Failure" in habit) return "failure";
+  if ("Unspecified" in habit) return "unspecified";
+  return null; }
 
 var writeDOM = function(habitSet, statuses, notes, chains, history) {
   var hdr = $("<h1>")
@@ -309,51 +225,36 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
     historyDays.shift()
   console.log(historyDays)
 
-	var percent = function(x) { return (x*100) + "%" }
-	height = (10*habitNames.length)
+  var percent = function(x) { return (x*100) + "%" }
+  height = (10*habitNames.length)
   var historySvgDiv = $('<div>')
-		.css({"width":"100%"})
-		.css({"height":0})
-		.css({"padding-bottom":percent(height/300)})
-		// This padding-bottom thing is a hack to set the height relative to the
-		// width.
+    .css({"width":"100%"})
+    .css({"height":0})
+    .css({"padding-bottom":percent(height/300)})
+    // This padding-bottom thing is a hack to set the height relative to the
+    // width.
 
   var historySvg = $('<svg>')
-		.attr("width","100%")
-		.attr("height","100%")
-		.attr("viewbox","0 0 300 " + height)
+    .attr("width","100%")
+    .attr("height","100%")
+    .attr("viewbox","0 0 300 " + height)
 
   var i=0,j=0;
   _.forEach(habitNames, function(habit){
-		j=0;
+    j=0;
     _.forEach(historyDays,function(day){
-			var x=j*10, y=i*10;
-			console.log(i,j,x,100-y);
+      var x=j*10, y=i*10;
+      console.log(i,j,x,100-y);
       historySvg.append($("<rect>")
         .attr("x",x).attr("y",y)
         .attr("width",10).attr("height",10)
-				.addClass(habitClass(history[day][habit]))
-				.addClass("refutable"))
-			j++; })
-		i++ })
-	historySvgDiv.append(historySvg)
-	historySvgDiv.html(historySvgDiv.html())
+        .addClass(habitClass(history[day][habit]))
+        .addClass("refutable"))
+      j++; })
+    i++ })
 
-  // var historyTbl = $("<table>")
-    // .addClass("history")
-
-  // _.forEach(habitNames, function(habit){
-    // var r = $("<tr>")
-    // _.forEach(historyDays,function(day){
-      // r.append($("<td>")
-        // .addClass(habitClass(history[day][habit]))
-        // .addClass("refutable")
-        // .addClass("history")
-        // .append($("<div>")
-          // .attr("data-tip",(habit))
-          // .addClass("tooltip")
-          // .addClass("historyTD")))})
-    // historyTbl.append(r) })
+  historySvgDiv.append(historySvg)
+  historySvgDiv.html(historySvgDiv.html())
 
   var node = $("#notices")
   node.empty()
@@ -363,6 +264,7 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   node.append(historySvgDiv) }
 
 var alreadyAuthenticated = (user && tok)
+
 if (alreadyAuthenticated) { update() } else {
   user = prompt("Username","user");
   (function () {
@@ -375,7 +277,3 @@ if (alreadyAuthenticated) { update() } else {
       localStorage.setItem("token",tok)
       localStorage.setItem("username",user)
       update() })})()}
-
-</script>
-</body>
-</html>
