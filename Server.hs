@@ -179,9 +179,9 @@ app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO
 app authdb db webreq =
   if "GET" ≡ W.requestMethod webreq
   then case W.pathInfo webreq of
-    [] → return $ W.responseLBS W.ok200 html htmlfile
+    [] → return $ W.responseFile W.ok200 html "client.html" Nothing
     ["client.css"] → return $ W.responseLBS W.ok200 css cssfile
-    ["client.js"] → return $ W.responseLBS W.ok200 js jsfile
+    ["client.js"] → return $ W.responseFile W.ok200 js "client.js" Nothing
     _ → return $ W.responseLBS W.notFound404 [] ""
   else do
     body ← W.lazyRequestBody webreq
