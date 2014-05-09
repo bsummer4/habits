@@ -44,14 +44,14 @@ data UserState = UserState
   }
 
 data Msg
-	= SetHabits User (Set Habit)
-	| AddHabit User Habit
-	| DelHabit User Habit
-	| RenameHabit User Habit Habit
+  = SetHabits User (Set Habit)
+  | AddHabit User Habit
+  | DelHabit User Habit
+  | RenameHabit User Habit Habit
   | AddNote User Day Text
   | DelNote User Day Text
   | SetNotes User Day (Set Text)
-	| SetDay User Day DayState
+  | SetDay User Day DayState
   | SetHabitStatus User Day Habit HabitStatus
 
 deriving instance Eq Habit

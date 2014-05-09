@@ -1,3 +1,7 @@
+/**
+ * @jsx React.DOM
+ */
+
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
 
