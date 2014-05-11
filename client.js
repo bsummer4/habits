@@ -203,7 +203,7 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
       .css("width","70")
       .addClass("refutable")
       .css("font-weight","bold")
-      .val("addhabit")
+      .attr("placeholder", "addhabit")
       .change(function(){addHabit(this.value, update)()}))
 
   strSortInPlace(notes)
@@ -272,6 +272,23 @@ var data =
 	, {author:"Colton", text:"..."}
 	]
 
+var CommentInput = React.createClass({
+	handleSubmit: function() {
+		var author = this.refs.author.getDOMNode().value.trim()
+		var text = this.refs.text.getDOMNode().value.trim()
+		if (!text || !author) { return false }
+		this.refs.author.getDOMNode().value = ''
+		this.refs.text.getDOMNode().value = ''
+		this.props.addData({author:author, text:text})
+		return false },
+
+	render: function() {
+		return (<form className="commentForm" onSubmit={this.handleSubmit}>
+			<input type="text" ref="author" placeholder="Your name"></input>
+			<input type="text" ref="text" placeholder="Comment"></input>
+			<input type="submit" value="Post" />
+			</form> )}});
+
 var Comment = React.createClass({render: function() {
 	return (<div className="comment">
 		<h2 className="commentAuthor">
@@ -285,22 +302,32 @@ var CommentList = React.createClass({render: function() {
 		return <Comment author={comment.author}>{comment.text}</Comment>; })
 	return (<div className="commentList">
 		{commentNodes}
-		</div>)}});
+		<CommentInput author="isan" addData={this.props.addData} />
+	</div>)}});
 
 var CommentForm = React.createClass({render: function() {
 	return (<div className="commentForm">
 		<h1>Hello, world! I am a CommentForm.</h1>
 		</div> )}});
 
-var CommentBox = React.createClass({render: function() {
-  return (<div className="commentBox">
-    <h1>Comments</h1>
-    <CommentList data={this.props.data}/>
-    <CommentForm />
-    </div> )}});
+var CommentBox = React.createClass({
+	getInitialState: function() {
+		return {data:this.props.initData} },
+
+	addData: function(x) {
+		console.log(x);
+		this.state.data.push(x)
+		this.setState(this.state); },
+
+	render: function() {
+ 	 return (<div className="commentBox">
+ 	   <h1>Comments</h1>
+ 	   <CommentList data={this.state.data} addData={this.addData} />
+ 	   <CommentForm />
+ 	   </div> )}});
 
 React.renderComponent(
-	<CommentBox data={data} />,
+	<CommentBox initData={data} />,
 	document.getElementById('app'));
 
 
