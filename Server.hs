@@ -175,13 +175,16 @@ cssfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.css"))
 jsfile ∷ LBS.ByteString
 jsfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.js"))
 
+-- [] → return $ W.responseFile W.ok200 html "client.html" Nothing
+-- ["client.js"] → return $ W.responseFile W.ok200 js "client.js" Nothing
+
 app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
 app authdb db webreq =
   if "GET" ≡ W.requestMethod webreq
   then case W.pathInfo webreq of
-    [] → return $ W.responseFile W.ok200 html "client.html" Nothing
+    [] → return $ W.responseLBS W.ok200 html htmlfile
+    ["client.js"] → return $ W.responseLBS W.ok200 js jsfile
     ["client.css"] → return $ W.responseLBS W.ok200 css cssfile
-    ["client.js"] → return $ W.responseFile W.ok200 js "client.js" Nothing
     _ → return $ W.responseLBS W.notFound404 [] ""
   else do
     body ← W.lazyRequestBody webreq
