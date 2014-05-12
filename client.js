@@ -7,9 +7,7 @@
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
 
-var normalizeNote = function(note) {
-  return note.replace(/\s+/g,' ').trim() }
-
+var normalizeNote = function(note) { return note.replace(/\s+/g,' ').trim() }
 var julian = function(d) { return d.modifiedJulianDay() }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
@@ -30,8 +28,8 @@ var LoginForm = React.createClass({
       </form> )} })
 
 var LogoutForm = React.createClass({
-	handleSubmit: function () {
-		this.props.logout(); return false; },
+  handleSubmit: function () {
+    this.props.logout(); return false; },
   render: function() {
     return (<form className="logoutForm" onSubmit={this.handleSubmit}>
       <input type="submit" value="Logout" />
@@ -44,9 +42,33 @@ var AddNoteForm = React.createClass({
     this.props.addNote(note);
     return false; },
   render: function() {
-    return (<form className="addNoteForm" onSubmit={this.handleSubmit}>
+    return (<form onSubmit={this.handleSubmit}>
       <input placeholder="Add a Note" ref="name" className="note" type="text" />
-			</form>) }})
+      </form>) }})
+
+var Note = React.createClass({
+  submit: function() {
+    var fresh = normalizeNote(this.refs.name.getDOMNode().value)
+    var old = normalizeNote(this.props.name)
+    if (fresh == old) { return false }
+    this.props.renameNote(old,fresh);
+    return false; },
+  render: function() { return (
+    <form onSubmit={this.submit}>
+      <input ref="name" className="note" defaultValue={this.props.name} />
+      </form> )}})
+
+var Notes = React.createClass({
+  noteLI: function(note) { return(
+    <li className="note">
+      <Note name={note} renameNote={this.props.renameNote} />
+      </li> )},
+  render: function() { return(
+    <p><ul className="note">
+      <li className="note" style={{"border-width":2}}>
+        <AddNoteForm addNote={this.props.addNote} /></li>
+      {this.props.noteList.map(this.noteLI)}
+      </ul></p> )}})
 
 
 // Procedures and Global State
@@ -58,20 +80,6 @@ onEnter = function(j,f) {
     if (e.keyCode == 13)
       f() })
   return j }
-
-var noteDOM = function(name) {
-  return ($("<li>")
-    .append($("<input>")
-      .val(name)
-      .addClass("note")
-      .on("keyup",function(e){ if (e.keyCode==13) this.blur(); })
-      .change(function(){
-        this.blur()
-        var a = normalizeNote(name);
-        var b = normalizeNote(this.value)
-        if (a == b) return
-        delNote(name,addNote(b,update))() }))
-    .addClass("note")) }
 
 var habitDOM = function(name, status, tail, callback) {
   var result = $("<span>")
@@ -95,11 +103,11 @@ var addHabit = function(habit, cont) {
       rpc(tok,"Update",{AddHabit:[user,habit]},cont) }}) }
 
 var addNote = function(note, cont) {
+  note = normalizeNote(note);
   return (function(){
     if (!note || note == "") cont()
     else rpc(tok,"Update",{AddNote:[user,day,note]},cont) }) }
 
-var trace = function(x) { console.log(x); return x }
 var toJSON = function(s) { return JSON.stringify(s) }
 
 var json = function(s) {
@@ -159,6 +167,7 @@ var strSortInPlace = function (x) {
     t2.toUpperCase()
     return t1.localeCompare(t2) }) }
 
+var fsort = function(s) { strSortInPlace(s); return s; }
 var orWhat = function(n) {
   if (n===null || n.length===0) { return null }
   return n }
@@ -225,21 +234,6 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
       .attr("placeholder", "addhabit")
       .change(function(){addHabit(this.value, update)()}))
 
-  strSortInPlace(notes)
-  var noteListP = $("<p>")
-  var noteList = $("<ul>")
-  noteList.addClass("note")
-  noteListP.append(noteList)
-
-	var addNoteLI = $('<li id="addNoteLI">')
-    .css("border-width","2")
-    .addClass("note")
-
-  noteList.append(addNoteLI);
-
-  _.forEach(notes, function(note){
-    noteList.append(noteDOM(note))})
-
   var historyDays = _.keys(history)
   historyDays.sort()
   while (historyDays.length > 30)
@@ -281,17 +275,18 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   node.empty()
   node.append(hdr)
   node.append(habitList)
-  node.append(noteListP)
+  node.append($('<div id="noteListPlaceholder">'))
   node.append(historySvgDiv)
 
-	var addNoteFn = function (name) { addNote(name, update)(); }
+  var addNoteFn = function (name) { addNote(name, update)(); }
+  var renameFn = function (a,b) { delNote(a,addNote(b,update))() }
   React.renderComponent(
-		<AddNoteForm addNote={addNoteFn} />,
-		document.getElementById("addNoteLI")); }
+    <Notes addNote={addNoteFn} renameNote={renameFn} noteList={fsort(notes)} />,
+    document.getElementById("noteListPlaceholder")); }
 
 
 // Inject CSS
-var stylesheet = "form.addNoteForm{margin:0}"
+var stylesheet = "form {margin:0}"
 var node = document.createElement('style')
 node.innerHTML = stylesheet
 document.body.appendChild(node)
