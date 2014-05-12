@@ -2,21 +2,46 @@
  * @jsx React.DOM
  */
 
+
+// Pure Functions
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
 
 var normalizeNote = function(note) {
   return note.replace(/\s+/g,' ').trim() }
 
-var tok = localStorage.getItem("token")
-var user = localStorage.getItem("username")
 var julian = function(d) { return d.modifiedJulianDay() }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
 var day = julian(new Date())
-var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 
+var LoginForm = React.createClass({
+  handleSubmit: function() {
+    user = this.refs.user.getDOMNode().value.trim()
+    var pass = this.refs.pass.getDOMNode().value.trim()
+    if (user && pass) this.props.login(user,pass)
+    return false; },
+  render: function() {
+    return (<form className="loginForm" onSubmit={this.handleSubmit}>
+      <input type="text" ref="user" placeholder="Username"></input>
+      <input type="Password" ref="pass" placeholder="Password"></input>
+      <input type="submit" value="Login/Register" />
+      </form> )} })
+
+var LogoutForm = React.createClass({
+	handleSubmit: function () {
+		this.props.logout(); return false; },
+  render: function() {
+    return (<form className="logoutForm" onSubmit={this.handleSubmit}>
+      <input type="submit" value="Logout" />
+      </form> )}})
+
+
+// Procedures and Global State
+var tok = localStorage.getItem("token")
+var user = localStorage.getItem("username")
+var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 onEnter = function(j,f) {
   j.on("keyup",function(e){
     if (e.keyCode == 13)
@@ -225,7 +250,7 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   historyDays.sort()
   while (historyDays.length > 30)
     historyDays.shift()
-  console.log(historyDays)
+  // console.log(historyDays)
 
   var percent = function(x) { return (x*100) + "%" }
   height = (10*habitNames.length)
@@ -246,7 +271,7 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
     j=0;
     _.forEach(historyDays,function(day){
       var x=j*10, y=i*10;
-      console.log(i,j,x,100-y);
+      // console.log(i,j,x,100-y);
       historySvg.append($("<rect>")
         .attr("x",x).attr("y",y)
         .attr("width",10).attr("height",10)
@@ -265,68 +290,47 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   node.append(noteListP)
   node.append(historySvgDiv) }
 
-var LoginForm = React.createClass({
-  render: function() {
-    return (<form className="loginForm" onSubmit={this.handleSubmit}>
-      <input type="text" ref="user" placeholder="Username"></input>
-      <input type="Password" ref="pass" placeholder="Password"></input>
-      <input type="submit" value="Login/Register" />
-      </form> )},
-
-  handleSubmit: function() {
-    user = this.refs.user.getDOMNode().value.trim()
-    var pass = this.refs.pass.getDOMNode().value.trim()
-    if (user && pass) {
-      var opts =
-        { type:"POST", url:"/", dataType:"json", processData:false
-        , data:toJSON({"Register":[user,pass]})
-        }
-
-      $.ajax(opts).success(function(response) {
-        console.log(response);
-        if ("AUTH" in response) {
-          tok=response["AUTH"]
-          localStorage.setItem("token",tok)
-          localStorage.setItem("username",user)
-          console.log(user,pass,tok);
-          React.unmountComponentAtNode(document.getElementById('app'));
-          update() }})}
-
-    return false }})
-
-var main = null;
-
-var LogoutForm = React.createClass({
-  handleSubmit: function() {
-    var tok = localStorage.removeItem("token")
-    var user = localStorage.removeItem("username")
-    main(); },
-
-  render: function() {
-    return (<form className="logoutForm" onSubmit={this.handleSubmit}>
-      <input type="submit" value="Logout" />
-      </form> )}})
-
 main = function() {
-
-  // Clean up before a logout.
+  tok = localStorage.getItem("token")
+  user = localStorage.getItem("username")
   React.unmountComponentAtNode(document.getElementById('app'));
   React.unmountComponentAtNode(document.getElementById('logout'));
   $("#notices").empty()
 
-  React.renderComponent(
-    <LogoutForm />,
-    document.getElementById('logout'))
+  var login = function (user,pass) {
+    var opts =
+      { type:"POST", url:"/", dataType:"json", processData:false
+      , data:toJSON({"Register":[user,pass]}) }
+    $.ajax(opts).success(function(response) {
+      console.log(response);
+      if ("AUTH" in response) {
+        tok=response["AUTH"]
+        localStorage.setItem("token",tok)
+        localStorage.setItem("username",user)
+        console.log(user,pass,tok);
+        main() }})}
 
-  // Login
+  var logout = function() {
+    var tok = localStorage.removeItem("token")
+    var user = localStorage.removeItem("username")
+    main() }
+
   var alreadyAuthenticated = (user && tok)
-  if (alreadyAuthenticated) { update() } else {
+
+  if (alreadyAuthenticated) {
+    console.log("hi!")
+    React.renderComponent(
+      <LogoutForm logout={logout} />,
+      document.getElementById('logout'))
+    update() }
+
+  else {
     React.renderComponent(
       <div>
         Please login or register. If you try to
         login with a username that doesn't exist,
         the we will register you instead.
-        <LoginForm />
+        <LoginForm login={login}/>
         </div>,
       document.getElementById('app')) }};
 
