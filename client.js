@@ -37,6 +37,17 @@ var LogoutForm = React.createClass({
       <input type="submit" value="Logout" />
       </form> )}})
 
+var AddNoteForm = React.createClass({
+  handleSubmit: function () {
+    var note = this.refs.name.getDOMNode().value.trim();
+    if (note === "") return false;
+    this.props.addNote(note);
+    return false; },
+  render: function() {
+    return (<form className="addNoteForm" onSubmit={this.handleSubmit}>
+      <input placeholder="Add a Note" ref="name" className="note" type="text" />
+			</form>) }})
+
 
 // Procedures and Global State
 var tok = localStorage.getItem("token")
@@ -83,18 +94,10 @@ var addHabit = function(habit, cont) {
     if (habit.match(/^[a-z]*$/)) {
       rpc(tok,"Update",{AddHabit:[user,habit]},cont) }}) }
 
-var addHabitHandler = function() {
-  var hab = document.getElementById("habit").value
-  addHabit(hab, update)() }
-
 var addNote = function(note, cont) {
   return (function(){
     if (!note || note == "") cont()
     else rpc(tok,"Update",{AddNote:[user,day,note]},cont) }) }
-
-var addNoteHandler = function() {
-  var not = document.getElementById("note").value
-  addNote(not, update)() }
 
 var trace = function(x) { console.log(x); return x }
 var toJSON = function(s) { return JSON.stringify(s) }
@@ -126,13 +129,6 @@ var allHabits = function(cont) {
 var habitsStatus = function(habitSet, day, cont) {
   rpc(tok,"Query",{"GetHabitsStatus":[user,day]},function(r){
     cont(r["STATUSES"]) }) }
-
-var calcFailures = function(habitSet, successSet) {
-  var result = []
-  _.forEach(habitSet, function(habit){
-    if (-1 === successSet.indexOf(habit))
-      result.push(habit) })
-  return result }
 
 var update = function() {
   getHistory30(function(historyResponse) {
@@ -235,13 +231,11 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   noteList.addClass("note")
   noteListP.append(noteList)
 
-  noteList.append(
-    $('<li>').append(
-      $('<input value="Add a Note" type="text">')
-        .addClass("note")
-        .change(function(x){ addNote(this.value, update)() }))
-      .css("border-width","2")
-      .addClass("note"))
+	var addNoteLI = $('<li id="addNoteLI">')
+    .css("border-width","2")
+    .addClass("note")
+
+  noteList.append(addNoteLI);
 
   _.forEach(notes, function(note){
     noteList.append(noteDOM(note))})
@@ -288,8 +282,22 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   node.append(hdr)
   node.append(habitList)
   node.append(noteListP)
-  node.append(historySvgDiv) }
+  node.append(historySvgDiv)
 
+	var addNoteFn = function (name) { addNote(name, update)(); }
+  React.renderComponent(
+		<AddNoteForm addNote={addNoteFn} />,
+		document.getElementById("addNoteLI")); }
+
+
+// Inject CSS
+var stylesheet = "form.addNoteForm{margin:0}"
+var node = document.createElement('style')
+node.innerHTML = stylesheet
+document.body.appendChild(node)
+
+
+// Render the page.
 main = function() {
   tok = localStorage.getItem("token")
   user = localStorage.getItem("username")
