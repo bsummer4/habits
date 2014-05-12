@@ -130,7 +130,6 @@ var setDone = function(day, habit, statusCode, num, cont) {
   return (function() {
     rpc(tok,"Update",{"SetHabitsStatus":[user,day,habit,status]}, cont) }) }
 
-
 var strSortInPlace = function (x) {
   x.sort(function(a,b){
     var t1 = "".concat(a)
@@ -138,7 +137,6 @@ var strSortInPlace = function (x) {
     var t2 = "".concat(b)
     t2.toUpperCase()
     return t1.localeCompare(t2) }) }
-
 
 var orWhat = function(n) {
   if (n===null || n.length===0) { return null }
@@ -267,81 +265,69 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
   node.append(noteListP)
   node.append(historySvgDiv) }
 
-var data =
-	[ {author:"Ben", text:"Sup, bitches?"}
-	, {author:"Colton", text:"..."}
-	]
+var LoginForm = React.createClass({
+  render: function() {
+    return (<form className="loginForm" onSubmit={this.handleSubmit}>
+      <input type="text" ref="user" placeholder="Username"></input>
+      <input type="Password" ref="pass" placeholder="Password"></input>
+      <input type="submit" value="Login/Register" />
+      </form> )},
 
-var CommentInput = React.createClass({
-	handleSubmit: function() {
-		var author = this.refs.author.getDOMNode().value.trim()
-		var text = this.refs.text.getDOMNode().value.trim()
-		if (!text || !author) { return false }
-		this.refs.author.getDOMNode().value = ''
-		this.refs.text.getDOMNode().value = ''
-		this.props.addData({author:author, text:text})
-		return false },
+  handleSubmit: function() {
+    user = this.refs.user.getDOMNode().value.trim()
+    var pass = this.refs.pass.getDOMNode().value.trim()
+    if (user && pass) {
+      var opts =
+        { type:"POST", url:"/", dataType:"json", processData:false
+        , data:toJSON({"Register":[user,pass]})
+        }
 
-	render: function() {
-		return (<form className="commentForm" onSubmit={this.handleSubmit}>
-			<input type="text" ref="author" placeholder="Your name"></input>
-			<input type="text" ref="text" placeholder="Comment"></input>
-			<input type="submit" value="Post" />
-			</form> )}});
+      $.ajax(opts).success(function(response) {
+        console.log(response);
+        if ("AUTH" in response) {
+          tok=response["AUTH"]
+          localStorage.setItem("token",tok)
+          localStorage.setItem("username",user)
+          console.log(user,pass,tok);
+          React.unmountComponentAtNode(document.getElementById('app'));
+          update() }})}
 
-var Comment = React.createClass({render: function() {
-	return (<div className="comment">
-		<h2 className="commentAuthor">
-			{this.props.author}
-			</h2>
-		<pre>{this.props.children}</pre>
-	</div> )}});
+    return false }})
 
-var CommentList = React.createClass({render: function() {
-	var commentNodes = this.props.data.map(function (comment) {
-		return <Comment author={comment.author}>{comment.text}</Comment>; })
-	return (<div className="commentList">
-		{commentNodes}
-		<CommentInput author="isan" addData={this.props.addData} />
-	</div>)}});
+var main = null;
 
-var CommentForm = React.createClass({render: function() {
-	return (<div className="commentForm">
-		<h1>Hello, world! I am a CommentForm.</h1>
-		</div> )}});
+var LogoutForm = React.createClass({
+  handleSubmit: function() {
+    var tok = localStorage.removeItem("token")
+    var user = localStorage.removeItem("username")
+    main(); },
 
-var CommentBox = React.createClass({
-	getInitialState: function() {
-		return {data:this.props.initData} },
+  render: function() {
+    return (<form className="logoutForm" onSubmit={this.handleSubmit}>
+      <input type="submit" value="Logout" />
+      </form> )}})
 
-	addData: function(x) {
-		console.log(x);
-		this.state.data.push(x)
-		this.setState(this.state); },
+main = function() {
 
-	render: function() {
- 	 return (<div className="commentBox">
- 	   <h1>Comments</h1>
- 	   <CommentList data={this.state.data} addData={this.addData} />
- 	   <CommentForm />
- 	   </div> )}});
+  // Clean up before a logout.
+  React.unmountComponentAtNode(document.getElementById('app'));
+  React.unmountComponentAtNode(document.getElementById('logout'));
+  $("#notices").empty()
 
-React.renderComponent(
-	<CommentBox initData={data} />,
-	document.getElementById('app'));
+  React.renderComponent(
+    <LogoutForm />,
+    document.getElementById('logout'))
 
+  // Login
+  var alreadyAuthenticated = (user && tok)
+  if (alreadyAuthenticated) { update() } else {
+    React.renderComponent(
+      <div>
+        Please login or register. If you try to
+        login with a username that doesn't exist,
+        the we will register you instead.
+        <LoginForm />
+        </div>,
+      document.getElementById('app')) }};
 
-// var alreadyAuthenticated = (user && tok)
-
-// if (alreadyAuthenticated) { update() } else {
-  // user = prompt("Username","user");
-  // (function () {
-    // var pass = prompt("Password","")
-    // var obj = {"Register":[user,pass]}
-    // var opts = {
-      // type:"POST", url:"/", dataType:"json", processData:false, data:toJSON(obj)}
-    // $.ajax(opts).success(function(response) {
-      // tok=response["AUTH"]
-      // localStorage.setItem("token",tok)
-      // localStorage.setItem("username",user)
-      // update() })})()}
+main();
