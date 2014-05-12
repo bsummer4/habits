@@ -3,6 +3,7 @@
  */
 
 
+//////////////////////////////////////////////////////////////////////////////
 // Pure Functions
 Date.prototype.modifiedJulianDay = function() {
   return Math.floor((this/86400000)-(this.getTimezoneOffset()/1440)+40587) }
@@ -13,7 +14,12 @@ var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
 var day = julian(new Date())
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
+var cssPercent = function(x) { return (x*100) + "%" }
+var concat = function(arrays) { return [].concat.apply([],arrays); }
 
+
+//////////////////////////////////////////////////////////////////////////////
+// React Components
 var LoginForm = React.createClass({
   handleSubmit: function() {
     user = this.refs.user.getDOMNode().value.trim()
@@ -70,8 +76,36 @@ var Notes = React.createClass({
       {this.props.noteList.map(this.noteLI)}
       </ul></p> )}})
 
+// <HistoryRect x y status day habit>
+var HistoryRect = React.createClass({
+  render: function() {
+    var x = 10*this.props.x;
+    var y = 10*this.props.y;
+    var cx = ['refutable', this.props.status].join(" ")
+    return <rect x={x} y={y} width={10} height={10} className={cx} />}})
 
-// Procedures and Global State
+// The ‘padding-bottom’ css is a hack to set the height relative to the width.
+var History = React.createClass({
+  render: function() {
+    var d = this.props.habitData
+    if (0 === d.length) { return <div /> }
+    width = 10 * d[0].length;
+    height = 10 * d.length;
+    var viewbox = [0,0,width,height].join(" ")
+    var relHeight = cssPercent(height/width)
+    return <div style={{width:"100%", height:0, "padding-bottom":relHeight}}>
+      <svg width={"100%"} height={"100%"} viewBox={viewbox}>
+        {_.map(d, function(row,j){
+          return _.map(row, function(cell,i){
+            var day=cell[0], habit=cell[1], status=cell[2];
+            return <HistoryRect
+              x={i} y={j} status={status} day={day} habit={habit} /> })})}
+        </svg>
+      </div> }})
+
+
+//////////////////////////////////////////////////////////////////////////////
+// Global State and Operations on It
 var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
@@ -234,55 +268,26 @@ var writeDOM = function(habitSet, statuses, notes, chains, history) {
       .attr("placeholder", "addhabit")
       .change(function(){addHabit(this.value, update)()}))
 
-  var historyDays = _.keys(history)
-  historyDays.sort()
-  while (historyDays.length > 30)
-    historyDays.shift()
-  // console.log(historyDays)
-
-  var percent = function(x) { return (x*100) + "%" }
-  height = (10*habitNames.length)
-  var historySvgDiv = $('<div>')
-    .css({"width":"100%"})
-    .css({"height":0})
-    .css({"padding-bottom":percent(height/300)})
-    // This padding-bottom thing is a hack to set the height relative to the
-    // width.
-
-  var historySvg = $('<svg>')
-    .attr("width","100%")
-    .attr("height","100%")
-    .attr("viewbox","0 0 300 " + height)
-
-  var i=0,j=0;
-  _.forEach(habitNames, function(habit){
-    j=0;
-    _.forEach(historyDays,function(day){
-      var x=j*10, y=i*10;
-      // console.log(i,j,x,100-y);
-      historySvg.append($("<rect>")
-        .attr("x",x).attr("y",y)
-        .attr("width",10).attr("height",10)
-        .addClass(habitClass(history[day][habit]))
-        .addClass("refutable"))
-      j++; })
-    i++ })
-
-  historySvgDiv.append(historySvg)
-  historySvgDiv.html(historySvgDiv.html())
-
   var node = $("#notices")
   node.empty()
   node.append(hdr)
   node.append(habitList)
   node.append($('<div id="noteListPlaceholder">'))
-  node.append(historySvgDiv)
+  node.append($('<div id="historyPlaceholder">'))
 
   var addNoteFn = function (name) { addNote(name, update)(); }
   var renameFn = function (a,b) { delNote(a,addNote(b,update))() }
   React.renderComponent(
     <Notes addNote={addNoteFn} renameNote={renameFn} noteList={fsort(notes)} />,
-    document.getElementById("noteListPlaceholder")); }
+    document.getElementById("noteListPlaceholder"));
+
+  var d = _.map(fsort(_.keys(statuses)), function(habit,i){
+    return _.map(fsort(_.keys(history)), function(day,j){
+      return [day, habit, habitClass(history[day][habit])] })})
+
+  React.renderComponent(
+    <History habitData={d} />,
+    document.getElementById("historyPlaceholder")); }
 
 
 // Inject CSS
@@ -296,8 +301,7 @@ document.body.appendChild(node)
 main = function() {
   tok = localStorage.getItem("token")
   user = localStorage.getItem("username")
-  React.unmountComponentAtNode(document.getElementById('app'));
-  React.unmountComponentAtNode(document.getElementById('logout'));
+  React.unmountComponentAtNode(document.getElementById('auth'));
   $("#notices").empty()
 
   var login = function (user,pass) {
@@ -324,7 +328,7 @@ main = function() {
     console.log("hi!")
     React.renderComponent(
       <LogoutForm logout={logout} />,
-      document.getElementById('logout'))
+      document.getElementById('auth'))
     update() }
 
   else {
@@ -335,6 +339,6 @@ main = function() {
         the we will register you instead.
         <LoginForm login={login}/>
         </div>,
-      document.getElementById('app')) }};
+      document.getElementById('auth')) }};
 
 main();
