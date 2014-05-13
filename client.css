@@ -7,7 +7,7 @@ h1.header { text-align:center; }
   padding:2px; margin:1px; display:inline-block; }
 
 	rect.refutable {
-		stroke-width: 0.1;
+		stroke-width: 0.3;
 		stroke: black; }
 
 .pairLeft { margin-right:0 }
