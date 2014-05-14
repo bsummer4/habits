@@ -186,8 +186,6 @@ var History = React.createClass({
         </svg>
       </div> }})
 
-var update = function() { return null; }
-
 var DayNav = React.createClass({
   dayStr: function (d) { return (
     " " + d.getFullYear() + "/" + d.getMonth() + "/" + d.getDate() + " ")},
@@ -195,10 +193,10 @@ var DayNav = React.createClass({
   forward: function(){},
   render: function(){
     return (<h1 className="header">
-      <span className="datechange" onClick={shiftDate(-1,update)}>&lt;&lt;
+      <span className="datechange" onClick={this.props.yesterday}>&lt;&lt;
         </span>
       {this.dayStr(fromJulian(this.props.day))}
-      <span className="datechange" onClick={shiftDate(1,update)}>&gt;&gt;
+      <span className="datechange" onClick={this.props.tomorrow}>&gt;&gt;
         </span>
       </h1> )}})
 
@@ -241,6 +239,12 @@ var HabitList = React.createClass({render: function (){
     </p> )}})
 
 var App = React.createClass({
+  shiftDate: function(n) {
+    var x = this;
+    return function() {
+      console.log("state",x.state)
+      x.state.day += n; x.setState(x.state); }},
+
   getInitialState: function() {
     var user = localStorage.getItem("username")
     var tok = localStorage.getItem("token")
@@ -262,7 +266,11 @@ var App = React.createClass({
         </div> )}
     return(
       <ul>
-        <DayNav day={st.day} />
+        <DayNav
+          day={st.day}
+          tomorrow={this.shiftDate(1)}
+          yesterday={this.shiftDate(-1)}
+          />
         <HabitList habitInfo={st.days[st.day]} />
         <History habitData={st.days} />
         <LogoutForm logout={logout} />
@@ -333,7 +341,6 @@ var setDone = function(day, habit, statusCode, num, cont) {
 // Global State and Operations on It
 var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
-var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 
 var getUpdates = function(user, tok, day, cont){
   console.log("getUpdates!", user,tok,day);
