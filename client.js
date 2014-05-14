@@ -154,10 +154,13 @@ var HistoryRect = React.createClass({
     var x = 10*this.props.x;
     var y = 10*this.props.y;
     var cx = ['refutable', this.props.status].join(" ")
-    return <rect x={x} y={y} width={10} height={10} className={cx} />}})
+    return <rect x={x} y={y} width={10} height={10} className={cx} /> }})
 
 // The ‘padding-bottom’ css is a hack to set the height relative to the width.
 var History = React.createClass({
+  componentDidUpdate: function(a,b){
+    document.getElementById("svghack").innerHTML=this.ihtml },
+
   render: function(){
     var d = this.props.habitData
     var days = fsort(_.keys(d))
@@ -170,17 +173,20 @@ var History = React.createClass({
     var relHeight = cssPercent(height/width)
     var today = this.props.today;
     var info = concat(
-      _.map(_.range(today-29,today+1), function(day,i){
-        return (_.map(habits, function(hab,j){
-          var s = getHabit(getDay(d,day),hab).status;
-          return {x:i,y:j,s:s,day:day,hab:hab} }))}))
+        _.map(habits, function(hab,j){
+          return (_.map(_.range(today-29,today+1), function(day,i){
+            var s = getHabit(getDay(d,day),hab).status;
+            return {x:i,y:j,s:s,day:day,hab:hab} }))}))
 
-    return <div style={{width:"100%", height:0, "padding-bottom":relHeight}}>
-      <svg width={"100%"} height={"100%"} viewBox={viewbox}>
+    this.ihtml = React.renderComponentToString(
+      <svg width="100%" height="100%" viewBox={viewbox}>
         {info.map(function(r) { return(
           <HistoryRect x={r.x} y={r.y} status={r.s} day={r.day} habit={r.hab}/>
           )})}
-        </svg>
+        </svg>)
+
+    return <div style={{width:"100%", height:0, "padding-bottom":relHeight}}>
+      <div id="svghack" />
       </div> }})
 
 var DayNav = React.createClass({
@@ -235,7 +241,8 @@ var HabitList = React.createClass({render: function (){
 var App = React.createClass({
   shiftDate: function(n) {
     var x=this;
-    return function(){ x.setState({day:x.state.day+n}) }},
+    return function(){
+      x.setState({day:x.state.day+n}) }},
 
   getInitialState: function() {
     var user = localStorage.getItem("username")
