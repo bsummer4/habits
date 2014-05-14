@@ -3,10 +3,7 @@
  */
 
 // TODO Compute chains instead of requesting them.
-// TODO Allow incomplete ‘state.days’ records.
-//   TODO For missing nodes assume blank={status:"unspecified", num:null, chains:0}
-//   TODO For missing days, assume ‘map (\habit→(habit,blank)) habitSet’
-//   TODO Don't pad out ‘state.days’ records with blank entries.
+// TODO The SVG element is not updated.
 // TODO Do smaller queries to the server.
 //   If we change adherance data for today, refresh today's habit info.
 //   If we change notes data for today, refresh today's note info.
@@ -59,6 +56,11 @@ var habitClass = function(habit){
   if ("Unspecified" in habit) { return "unspecified" }
   return null }
 
+var getDay = function(days,day) { return (day in days) ? days[day] : {}}
+var getHabit = function(habits,nm) {
+  var blank={status:"unspecified", num:null, chains:0}
+  return ((nm in habits) ? habits[nm] : blank) }
+
 var responsesToState = function(habitSet, notes, chains, history) {
   var today = day
   var days = {}
@@ -72,10 +74,6 @@ var responsesToState = function(habitSet, notes, chains, history) {
   _.forEach(habitSet, function(habit) {
     if (habit in chains) {
       days[today][habit].chains = chains[habit] }})
-  _.forEach(habitSet, function(habit) {
-    _.forEach(history, function(_, day) {
-      if (!(habit in days[day])) {
-        days[day][habit] = {chains:0, status:"unspecified", num:null } }})})
   return {day:day, user:user, tok:tok, days:days} }
 
 
@@ -163,21 +161,25 @@ var History = React.createClass({
   render: function(){
     var d = this.props.habitData
     var days = fsort(_.keys(d))
-      if (0 === days.length) { return <div /> }
+    if (0 === days.length) { return <div /> }
     var habits = fsort(_.keys(d[days[0]]))
-      if (0 === habits.length) { return <div /> }
+    if (0 === habits.length) { return <div /> }
     var width = 10 * days.length;
     var height = 10 * habits.length;
     var viewbox = [0,0,width,height].join(" ")
     var relHeight = cssPercent(height/width)
+    var today = this.props.today;
+    var info = concat(
+      _.map(_.range(today-29,today+1), function(day,i){
+        return (_.map(habits, function(hab,j){
+          var s = getHabit(getDay(d,day),hab).status;
+          return {x:i,y:j,s:s,day:day,hab:hab} }))}))
 
     return <div style={{width:"100%", height:0, "padding-bottom":relHeight}}>
       <svg width={"100%"} height={"100%"} viewBox={viewbox}>
-        {_.map(days, function(day,i){ return(
-          _.map(habits, function(hab,j){
-            var s = d[day][hab].status;
-            return <HistoryRect
-              x={i} y={j} status={s} day={day} habit={hab} /> }))})}
+        {info.map(function(r) { return(
+          <HistoryRect x={r.x} y={r.y} status={r.s} day={r.day} habit={r.hab}/>
+          )})}
         </svg>
       </div> }})
 
@@ -221,10 +223,10 @@ var HabitList = React.createClass({render: function (){
   return (<p>
     {_.map(names, function (nm) { return(
       <Habit
-        status={d[nm].status}
+        status={getHabit(d,nm).status}
         name={nm}
-        chain={d[nm].chains}
-        num={d[nm].num}
+        chain={getHabit(d,nm).chains}
+        num={getHabit(d,nm).num}
         callback={cb} /> )})}
     <span> </span>
     <AddHabit />
@@ -232,8 +234,8 @@ var HabitList = React.createClass({render: function (){
 
 var App = React.createClass({
   shiftDate: function(n) {
-		var x=this;
-		return function(){ x.setState({day:x.state.day+n}) }},
+    var x=this;
+    return function(){ x.setState({day:x.state.day+n}) }},
 
   getInitialState: function() {
     var user = localStorage.getItem("username")
@@ -257,8 +259,8 @@ var App = React.createClass({
       <ul>
         <DayNav day={st.day} next={this.shiftDate(1)} back={this.shiftDate(-1)}
           />
-        <HabitList habitInfo={st.days[st.day]} />
-        <History habitData={st.days} />
+        <HabitList habitInfo={getDay(st.days,st.day)} />
+        <History habitData={st.days} today={st.day} />
         <LogoutForm logout={logout} />
         </ul> )}})
 
