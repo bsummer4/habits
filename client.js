@@ -74,7 +74,7 @@ var responsesToState = function(habitSet, notes, chains, history) {
   _.forEach(habitSet, function(habit) {
     if (habit in chains) {
       days[today][habit].chains = chains[habit] }})
-  return {day:day, user:user, tok:tok, days:days} }
+  return {day:day, user:USER, tok:TOK, days:days} }
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -94,9 +94,9 @@ var fsort = function(s) { strSortInPlace(s); return s }
 // React Components
 var LoginForm = React.createClass({
   handleSubmit: function(){
-    user = this.refs.user.getDOMNode().value.trim()
+    USER = this.refs.user.getDOMNode().value.trim()
     var pass = this.refs.pass.getDOMNode().value.trim()
-    if (user && pass) this.props.login(user,pass)
+    if (USER && pass) this.props.login(USER,pass)
     return false; },
   render: function(){
     return (<form className="loginForm" onSubmit={this.handleSubmit}>
@@ -284,13 +284,13 @@ var rpc = function (tok,ty,req,cont) {
 var addHabit = function(habit, cont) {
   return (function(){
     if (habit.match(/^[a-z]*$/)) {
-      rpc(tok,"Update",{AddHabit:[user,habit]},cont) }}) }
+      rpc(TOK,"Update",{AddHabit:[USER,habit]},cont) }}) }
 
 var addNote = function(note, cont) {
   note = normalizeNote(note);
   return (function(){
     if (!note || note == "") cont()
-    else rpc(tok,"Update",{AddNote:[user,day,note]},cont) }) }
+    else rpc(TOK,"Update",{AddNote:[USER,day,note]},cont) }) }
 
 var toJSON = function(s) { return JSON.stringify(s) }
 
@@ -299,27 +299,27 @@ var json = function(s) {
   else {return {}} }
 
 var getHistory30 = function(cont) {
-  rpc(tok,"Query",{History30:[user,day]},cont) }
+  rpc(TOK,"Query",{History30:[USER,day]},cont) }
 
 var getChains = function(cont) {
-  rpc(tok,"Query",{GetChains:[user,day]},cont) }
+  rpc(TOK,"Query",{GetChains:[USER,day]},cont) }
 
 var delNote = function(note,cont) {
   return function(){
-    rpc(tok,"Update",{DelNote:[user,day,note]},cont) }}
+    rpc(TOK,"Update",{DelNote:[USER,day,note]},cont) }}
 
 var delHabit = function(habit,cont) {
   return function(){
-    rpc(tok,"Update",{DelHabit:[user,habit]},cont) }}
+    rpc(TOK,"Update",{DelHabit:[USER,habit]},cont) }}
 
 var getNotes = function(cont) {
-  rpc(tok,"Query",{GetNotes:[user,day]},cont) }
+  rpc(TOK,"Query",{GetNotes:[USER,day]},cont) }
 
 var allHabits = function(cont) {
-  rpc(tok,"Query",{ListHabits:user},cont) }
+  rpc(TOK,"Query",{ListHabits:USER},cont) }
 
 var habitsStatus = function(habitSet, day, cont) {
-  rpc(tok,"Query",{"GetHabitsStatus":[user,day]},function(r){
+  rpc(TOK,"Query",{"GetHabitsStatus":[USER,day]},function(r){
     cont(r["STATUSES"]) }) }
 
 var setDone = function(day, habit, statusCode, num, cont) {
@@ -329,13 +329,13 @@ var setDone = function(day, habit, statusCode, num, cont) {
   else if (statusCode == "unspecified") { status={"Unspecified":[]} }
   else { throw "bad statusCode" }
   return (function(){
-    rpc(tok,"Update",{"SetHabitsStatus":[user,day,habit,status]}, cont) }) }
+    rpc(TOK,"Update",{"SetHabitsStatus":[USER,day,habit,status]}, cont) }) }
 
 
 //////////////////////////////////////////////////////////////////////////////
 // Global State and Operations on It
-var tok = localStorage.getItem("token")
-var user = localStorage.getItem("username")
+var TOK = localStorage.getItem("token")
+var USER = localStorage.getItem("username")
 
 var getUpdates = function(user, tok, day, cont){
   getHistory30(function(historyResponse) {
@@ -352,36 +352,90 @@ var getUpdates = function(user, tok, day, cont){
 
 //////////////////////////////////////////////////////////////////////////////
 // Inject CSS
-var stylesheet = "form {margin:0}"
+var stylesheet =
+	[ "form {margin:0}"
+	, "div.toplevel { max-width:480; width:95%; margin:0 auto; }"
+	, "ul#notices { padding: 0; }"
+	, "h1.header { text-align:center; }"
+	, ".refutable {"
+	, "  border-width:1; border-style:solid;"
+	, "  padding:2px; margin:1px; display:inline-block; }"
+	, "	rect.refutable {"
+	, "		stroke-width: 0.3;"
+	, "		stroke: black; }"
+	, ".pairLeft { margin-right:0 }"
+	, ".pairRight { margin-left:-2; }"
+	, ".history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }"
+	, "table.history { margin:0 auto; }"
+	, "div.historyTD { min-width:13; min-height:13 }"
+	, "td.history { border: 0px solid }"
+	, ".datechange { forground-color:blue; text-decoration:underline; }"
+	, ".success { background-color:#88ff88; border-color:#228822; }"
+	, ".failure { background-color:#ff8888; border-color:#882222; }"
+	, ".unspecified { border: 0px solid #9999dd; background-color:#ddddff }"
+	, ".refutable:hover { background-color:yellow; }"
+	, "td.history { border: 0px solid white }"
+	, "rect.success { fill: green; }"
+	, "rect.failure { fill: red; }"
+	, "rect.unspecified { fill: #ddddff; }"
+	, "rect.refutable:hover { fill: yellow; }"
+	, "input.note { width:100%; border-width:0; }"
+	, "ul.note { padding: 0; list-style: none; }"
+	, "input.note { background-color:inherit; }"
+	, "li.note:hover { background-color:yellow; }"
+	, "input.note:focus { outline: 0; }"
+	, "li.note {"
+	, "  padding: 3px;"
+	, "  margin: 2px;"
+	, "  display: inline-block;"
+	, "  width: 97%;"
+	, "  border-width: 0 2px 0 2px;"
+	, "  border-style: solid; }"
+	, "div.tooltip::before {"
+	, "  content: attr(data-tip);"
+	, "  font-size: 10px;"
+	, "  position:absolute;"
+	, "  z-index: 999;"
+	, "  white-space:nowrap;"
+	, "  bottom:9999px;"
+	, "  left: 50%;"
+	, "  background:#000;"
+	, "  color:#e0e0e0;"
+	, "  padding:0px 7px;"
+	, "  line-height: 24px;"
+	, "  height: 24px;"
+	, "  opacity: 0;"
+	, "  transition:opacity 0.4s ease-out; }"
+	, "div.tooltip:hover::before { opacity: 1; bottom:-35px; }"
+	]
+
 var node = document.createElement('style')
-node.innerHTML = stylesheet
+node.innerHTML = stylesheet.join("\n")
 document.body.appendChild(node)
 
 
 //////////////////////////////////////////////////////////////////////////////
 // Render the page.
-var logout = null;
-var login = null;
-var top = null;
+logout = function(){
+  localStorage.removeItem("token")
+  localStorage.removeItem("username")
+  main() }
+
+login = function (user,pass) {
+  var opts =
+    { type:"POST", url:"/", dataType:"json", processData:false
+    , data:toJSON({"Register":[user,pass]}) }
+  $.ajax(opts).success(function(response) {
+    if ("AUTH" in response) {
+      TOK=response["AUTH"]
+      localStorage.setItem("token",TOK)
+      localStorage.setItem("username",user)
+      main() }})}
+
 main = function(){
-  tok = localStorage.getItem("token")
-  user = localStorage.getItem("username")
-  React.unmountComponentAtNode(document.getElementById('auth'))
-  React.unmountComponentAtNode(document.getElementById('notices'))
-  login = function (user,pass) {
-    var opts =
-      { type:"POST", url:"/", dataType:"json", processData:false
-      , data:toJSON({"Register":[user,pass]}) }
-    $.ajax(opts).success(function(response) {
-      if ("AUTH" in response) {
-        tok=response["AUTH"]
-        localStorage.setItem("token",tok)
-        localStorage.setItem("username",user)
-        main() }})}
-  logout = function(){
-    var tok = localStorage.removeItem("token")
-    var user = localStorage.removeItem("username")
-    main() }
+	USER = localStorage.getItem("username")
+	TOK = localStorage.getItem("token")
+	React.unmountComponentAtNode(document.getElementById('notices'))
   React.renderComponent(<App />, document.getElementById('notices')) }
 
 main()
