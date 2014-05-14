@@ -2,9 +2,18 @@
  * @jsx React.DOM
  */
 
-//////////////////////////////////////////////////////////////////////////////
-// App State
-//
+// TODO Compute chains instead of requesting them.
+// TODO Allow incomplete ‘state.days’ records.
+//   TODO For missing nodes assume blank={status:"unspecified", num:null, chains:0}
+//   TODO For missing days, assume ‘map (\habit→(habit,blank)) habitSet’
+//   TODO Don't pad out ‘state.days’ records with blank entries.
+// TODO Do smaller queries to the server.
+//   If we change adherance data for today, refresh today's habit info.
+//   If we change notes data for today, refresh today's note info.
+//   If we change days, update the display right away, but request more day
+//     information if we don't have enough for today and the last 30 days.
+//   When we first load, do a series of updates.
+
 // data Status = "success" | "failure" | "unspecified"
 // type Habit = String
 // type Token = String
@@ -50,6 +59,28 @@ var habitClass = function(habit){
   if ("Failure" in habit) { return "failure" }
   if ("Unspecified" in habit) { return "unspecified" }
   return null }
+
+var responsesToState = function(habitSet, notes, chains, history) {
+  console.log("toState", habitSet, notes, chains, history)
+  var today = day
+  var days = {}
+  _.forEach(history, function(_,day){ days[day]={} })
+  _.forEach(habitSet, function(habit) {
+    _.forEach(history, function(_, day) {
+      days[day][habit] =
+        { status: habitClass(history[day][habit])
+        , num: habitNum(history[day][habit])
+        , chains: 0 }})})
+  _.forEach(habitSet, function(habit) {
+    if (habit in chains) {
+      console.log("sup", habit,chains)
+      days[today][habit].chains = chains[habit] }})
+  _.forEach(habitSet, function(habit) {
+    _.forEach(history, function(_, day) {
+      if (!(habit in days[day])) {
+        days[day][habit] = {chains:0, status:"unspecified", num:null } }})})
+  console.log("woot!")
+  return {day:day, user:user, tok:tok, days:days} }
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -304,28 +335,6 @@ var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
 var shiftDate = function(n,cont){ return(function(){ day+=n; cont() })}
 
-var toState = function(habitSet, statuses, notes, chains, history) {
-  console.log("toState", habitSet, statuses, notes, chains, history)
-  var today = day
-  var days = {}
-  _.forEach(history, function(_,day){ days[day]={} })
-  _.forEach(statuses, function(status, habit) {
-    _.forEach(history, function(_, day) {
-      days[day][habit] =
-        { status: habitClass(history[day][habit])
-        , num: habitNum(history[day][habit])
-        , chains: 0 }})})
-  _.forEach(habitSet, function(habit) {
-    if (habit in chains) {
-      console.log("sup", habit,chains)
-      days[today][habit].chains = chains[habit] }})
-  _.forEach(habitSet, function(habit) {
-    _.forEach(history, function(_, day) {
-      if (!(habit in days[day])) {
-        days[day][habit] = {chains:0, status:"unspecified", num:null } }})})
-  console.log("woot!")
-  return {day:day, user:user, tok:tok, days:days} }
-
 var getUpdates = function(user, tok, day, cont){
   console.log("getUpdates!", user,tok,day);
   getHistory30(function(historyResponse) {
@@ -336,26 +345,8 @@ var getUpdates = function(user, tok, day, cont){
         notes = noteResponse["NOTES"]
         allHabits(function(response) {
           var habitSet = response["HABITS"]
-          habitsStatus(habitSet, day, function(statuses) {
-            cont(toState(habitSet,statuses,notes,chains,history)) })})})})})}
-
-// var writeDOM = function(state) {
-  // console.log("day", state.day)
-  // console.log("user", state.user)
-  // console.log("tok", state.tok)
-  // console.log("habits", state.habits)
-  // console.log("days:", fsort(_.keys(state.days)))
-  // console.log("[days]")
-  // _.forEach(fsort(_.keys(state.days)), function(day) {
-    // console.log(day)
-    // _.forEach(fsort(_.keys(state.days[day])), function(habit) {
-      // console.log("\t",habit,toJSON(state.days[day][habit])) })})
-
-  // top.setState(state)
-  // React.unmountComponentAtNode(document.getElementById('notices'))
-  // React.renderComponent(
-    // <App state={state} />,
-    // document.getElementById("notices")) }
+          var f = responsesToState;
+          cont(f(habitSet,notes,chains,history)) })})})})}
 
 
 //////////////////////////////////////////////////////////////////////////////
