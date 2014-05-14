@@ -51,7 +51,6 @@ var habitNum = function(habit){
   if ("Failure" in habit) { x=habit["Failure"] }
   if ("Unspecified" in habit) { x=habit["Unspecified"] }
   if ("number" != typeof x) { x=null }
-  // console.log(habit,x)
   return x }
 
 var habitClass = function(habit){
@@ -61,7 +60,6 @@ var habitClass = function(habit){
   return null }
 
 var responsesToState = function(habitSet, notes, chains, history) {
-  console.log("toState", habitSet, notes, chains, history)
   var today = day
   var days = {}
   _.forEach(history, function(_,day){ days[day]={} })
@@ -73,13 +71,11 @@ var responsesToState = function(habitSet, notes, chains, history) {
         , chains: 0 }})})
   _.forEach(habitSet, function(habit) {
     if (habit in chains) {
-      console.log("sup", habit,chains)
       days[today][habit].chains = chains[habit] }})
   _.forEach(habitSet, function(habit) {
     _.forEach(history, function(_, day) {
       if (!(habit in days[day])) {
         days[day][habit] = {chains:0, status:"unspecified", num:null } }})})
-  console.log("woot!")
   return {day:day, user:user, tok:tok, days:days} }
 
 
@@ -157,7 +153,6 @@ var Notes = React.createClass({
 // <HistoryRect x y status day habit>
 var HistoryRect = React.createClass({
   render: function(){
-    // console.log("rect", this.props)
     var x = 10*this.props.x;
     var y = 10*this.props.y;
     var cx = ['refutable', this.props.status].join(" ")
@@ -189,20 +184,17 @@ var History = React.createClass({
 var DayNav = React.createClass({
   dayStr: function (d) { return (
     " " + d.getFullYear() + "/" + d.getMonth() + "/" + d.getDate() + " ")},
-  back: function(){},
-  forward: function(){},
   render: function(){
     return (<h1 className="header">
-      <span className="datechange" onClick={this.props.yesterday}>&lt;&lt;
+      <span className="datechange" onClick={this.props.back}>&lt;&lt;
         </span>
       {this.dayStr(fromJulian(this.props.day))}
-      <span className="datechange" onClick={this.props.tomorrow}>&gt;&gt;
+      <span className="datechange" onClick={this.props.next}>&gt;&gt;
         </span>
       </h1> )}})
 
 // <Habit name chain num callback>
 var Habit = React.createClass({render: function(){
-  // console.log("hihi",this.props);
   cx = ["refutable", this.props.status].join(" ")
   return(<span>
     <span style={{"white-space":"nowrap"}}>
@@ -225,7 +217,7 @@ var AddHabit = React.createClass({render: function(){
 var HabitList = React.createClass({render: function (){
   var d = this.props.habitInfo // Day → {status num chains}
   var names = fsort(_.keys(d))
-  var cb = function(){ console.log("clicked!"); }
+  var cb = function(){ console.log("Placeholder callback!"); }
   return (<p>
     {_.map(names, function (nm) { return(
       <Habit
@@ -240,20 +232,17 @@ var HabitList = React.createClass({render: function (){
 
 var App = React.createClass({
   shiftDate: function(n) {
-    var x = this;
-    return function() {
-      console.log("state",x.state)
-      x.state.day += n; x.setState(x.state); }},
+		var x=this;
+		return function(){ x.setState({day:x.state.day+n}) }},
 
   getInitialState: function() {
     var user = localStorage.getItem("username")
     var tok = localStorage.getItem("token")
     var day = julian(new Date())
     var nulls = {day:day, tok:tok, user:user, days:{}}
-    console.log(user,tok,day)
-    var fuck = this;
+    var fuckjs = this;
     if (user && tok) {
-      getUpdates(user, tok, day, function(x){fuck.setState(x)}) }
+      getUpdates(user, tok, day, function(x){fuckjs.setState(x)}) }
     return nulls; },
 
   render: function(){
@@ -266,10 +255,7 @@ var App = React.createClass({
         </div> )}
     return(
       <ul>
-        <DayNav
-          day={st.day}
-          tomorrow={this.shiftDate(1)}
-          yesterday={this.shiftDate(-1)}
+        <DayNav day={st.day} next={this.shiftDate(1)} back={this.shiftDate(-1)}
           />
         <HabitList habitInfo={st.days[st.day]} />
         <History habitData={st.days} />
@@ -343,7 +329,6 @@ var tok = localStorage.getItem("token")
 var user = localStorage.getItem("username")
 
 var getUpdates = function(user, tok, day, cont){
-  console.log("getUpdates!", user,tok,day);
   getHistory30(function(historyResponse) {
     var history = historyResponse["HISTORY"]
     getChains(function(chainsResponse) {
@@ -379,12 +364,10 @@ main = function(){
       { type:"POST", url:"/", dataType:"json", processData:false
       , data:toJSON({"Register":[user,pass]}) }
     $.ajax(opts).success(function(response) {
-      // console.log(response)
       if ("AUTH" in response) {
         tok=response["AUTH"]
         localStorage.setItem("token",tok)
         localStorage.setItem("username",user)
-        // console.log(user,pass,tok)
         main() }})}
   logout = function(){
     var tok = localStorage.removeItem("token")
