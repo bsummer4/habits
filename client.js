@@ -3,7 +3,8 @@
  */
 
 // TODO Compute chains instead of requesting them.
-// TODO Do smaller queries to the server.
+// TODO Implement all operations without doing the actual rpc calls.
+// TODO Implement minimal rpc calls for operations
 //   If we change adherance data for today, refresh today's habit info.
 //   If we change notes data for today, refresh today's note info.
 //   If we change days, update the display right away, but request more day
@@ -34,7 +35,6 @@ var julian = function(d) { return d.modifiedJulianDay() }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
 var TODAY = julian(new Date())
-TODAY = 56790
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 var cssPercent = function(x) { return (x*100) + "%" }
 var concat = function(arrays) { return [].concat.apply([],arrays) }
@@ -154,7 +154,7 @@ var History = React.createClass({
     var d = this.props.habitData
     var days = fsort(_.keys(d))
     if (0 === days.length) { return <div /> }
-    var habits = fsort(_.keys(d[days[0]]))
+    var habits = this.props.habits
     if (0 === habits.length) { return <div /> }
     var width = 10 * days.length;
     var height = 10 * habits.length;
@@ -213,8 +213,9 @@ var AddHabit = React.createClass({render: function(){
 // <HabitList habitInfo>
 var HabitList = React.createClass({render: function (){
   var d = this.props.habitInfo // Day → {status num chains}
-  var names = fsort(_.keys(d))
+  var names = this.props.habits
   var cb = function(){ console.log("Placeholder callback!"); }
+  console.log("d",d,names)
   return (<p>
     {_.map(names, function (nm) { return(
       <Habit
@@ -256,9 +257,9 @@ var App = React.createClass({
       <ul>
         <DayNav day={st.day} next={this.shiftDate(1)} back={this.shiftDate(-1)}
           />
-        <HabitList habitInfo={getDay(st.days,st.day)} />
+        <HabitList habitInfo={getDay(st.days,st.day)} habits={this.state.habits} />
         <Notes renameNote={tmp} addNote={tmp} noteList={st.notes} />
-        <History habitData={st.days} today={st.day} />
+        <History habitData={st.days} habits={this.state.habits} today={st.day} />
         <LogoutForm logout={logout} />
         </ul> )}})
 
@@ -328,50 +329,38 @@ var setDone = function(day, habit, statusCode, num, cont) {
 var TOK = localStorage.getItem("token")
 var USER = localStorage.getItem("username")
 
-
-var responsesToState = function(app, habitSet, notes, chains, history) {
+var updateHistory = function(app, history) {
   var days = app.state.days
-  _.forEach(history, function(_,day){
-    days[day]=getDay(days,day) })
-  _.forEach(habitSet, function(habit) {
-    _.forEach(history, function(_, day) {
-      habSt = getHabit(days[day],habit)
-      habSt.status = habitClass(history[day][habit])
-      habSt.num = habitNum(history[day][habit])
-      habSt.chains = ("chains" in habSt) ? habSt.chains : 0
-      days[day][habit] = habSt })})
-  _.forEach(habitSet, function(habit) {
-    if (habit in chains) {
-      days[TODAY][habit].chains = chains[habit] }})
-  return (
-    { habits:habitSet, day:TODAY, user:USER, tok:TOK, days:days
-    , notes:["hi"]} )}
+  _.forEach(history, function(daySt, day) {
+    _.forEach(daySt, function(_, habit) {
+      days[day] = getDay(days,day)
+      days[day][habit] = getHabit(days[day],habit)
+      days[day][habit].status = habitClass(history[day][habit])
+      days[day][habit].num = habitNum(history[day][habit])
+      })})
+  app.setState({days:days}) }
+
+var updateHabitSet = function(app, habitSet) {
+  app.setState({habits: fsort(habitSet)}) };
 
 var updateChains = function (app, chains){
   console.log(chains);
+  day = app.state.day;
   _.forEach(chains, function(length,habit){
-    console.log("chained!",app.state.day,habit,length)
-    daySt = getDay(app.state.days,app.state.day)
-    habSt = getHabit(daySt, habit)
-    habSt.chains = length
-    daySt[habit] = habSt
-    app.state.days[app.state.day] = daySt; })
+    app.state.days[day] = getDay(app.state.days,day)
+    app.state.days[day][habit] = getHabit(app.state.days[day],habit)
+    app.state.days[day][habit].chains = length })
   app.setState(app.state); }
 
-var getUpdates = function(app, user, tok, day, cont){
+var getUpdates = function(app, user, tok, day){
+  getNotes(function(noteResponse) {
+    app.setState({notes:noteResponse["NOTES"]}) })
   getHistory30(function(historyResponse) {
-    var history = historyResponse["HISTORY"]
-      getNotes(function(noteResponse) {
-        notes = noteResponse["NOTES"]
-        allHabits(function(response) {
-          var habitSet = response["HABITS"]
-          var f = responsesToState;
-          cont(f(app, habitSet,notes,{},history))
-          })})})
+    updateHistory(app,historyResponse["HISTORY"]) })
+  allHabits(function(response) {
+    updateHabitSet(app,response["HABITS"]) })
   getChains(function(chainsResponse) {
-    chains = chainsResponse["CHAINS"]
-    updateChains(app, chains)
-    console.log("got dem chains off!") })}
+    updateChains(app, chainsResponse["CHAINS"]) })}
 
 
 //////////////////////////////////////////////////////////////////////////////
