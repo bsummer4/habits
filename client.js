@@ -3,7 +3,6 @@
  */
 
 // TODO Compute chains instead of requesting them.
-// TODO The SVG element is not updated.
 // TODO Do smaller queries to the server.
 //   If we change adherance data for today, refresh today's habit info.
 //   If we change notes data for today, refresh today's note info.
@@ -14,11 +13,14 @@
 // data Status = "success" | "failure" | "unspecified"
 // type Habit = String
 // type Token = String
+// type Note = String
 // type User = String
 // type Day = Int // Modified Julian Day
 // type Adherence = Day → Habit →
 //   (status:Status, num:Maybe Number, chains:Number)
-// type State = {day:Day user:User, tok:Token, days:Adherence}
+// type State =
+//  { habits:[Habit], day:Day user:User, tok:Token, days:Adherence
+//  , notes:[Note] }
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -31,7 +33,8 @@ var normalizeNote = function(note) { return note.replace(/\s+/g,' ').trim() }
 var julian = function(d) { return d.modifiedJulianDay() }
 var epoch = julian(new Date(0))
 var fromJulian = function(j) { return new Date(86400000*(j-epoch)) }
-var day = julian(new Date())
+var TODAY = julian(new Date())
+TODAY = 56790
 var member = function(i,a) { return !(-1 === a.indexOf(i)) }
 var cssPercent = function(x) { return (x*100) + "%" }
 var concat = function(arrays) { return [].concat.apply([],arrays) }
@@ -60,21 +63,6 @@ var getDay = function(days,day) { return (day in days) ? days[day] : {}}
 var getHabit = function(habits,nm) {
   var blank={status:"unspecified", num:null, chains:0}
   return ((nm in habits) ? habits[nm] : blank) }
-
-var responsesToState = function(habitSet, notes, chains, history) {
-  var today = day
-  var days = {}
-  _.forEach(history, function(_,day){ days[day]={} })
-  _.forEach(habitSet, function(habit) {
-    _.forEach(history, function(_, day) {
-      days[day][habit] =
-        { status: habitClass(history[day][habit])
-        , num: habitNum(history[day][habit])
-        , chains: 0 }})})
-  _.forEach(habitSet, function(habit) {
-    if (habit in chains) {
-      days[today][habit].chains = chains[habit] }})
-  return {day:day, user:USER, tok:TOK, days:days} }
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -159,7 +147,8 @@ var HistoryRect = React.createClass({
 // The ‘padding-bottom’ css is a hack to set the height relative to the width.
 var History = React.createClass({
   componentDidUpdate: function(a,b){
-    document.getElementById("svghack").innerHTML=this.ihtml },
+    var elem = document.getElementById("svghack")
+    if (elem && this.ihtml) { elem.innerHTML=this.ihtml }},
 
   render: function(){
     var d = this.props.habitData
@@ -176,7 +165,7 @@ var History = React.createClass({
         _.map(habits, function(hab,j){
           return (_.map(_.range(today-29,today+1), function(day,i){
             var s = getHabit(getDay(d,day),hab).status;
-            return {x:i,y:j,s:s,day:day,hab:hab} }))}))
+            return {x:i,y:j,s:s,day:TODAY,hab:hab} }))}))
 
     this.ihtml = React.renderComponentToString(
       <svg width="100%" height="100%" viewBox={viewbox}>
@@ -248,13 +237,14 @@ var App = React.createClass({
     var user = localStorage.getItem("username")
     var tok = localStorage.getItem("token")
     var day = julian(new Date())
-    var nulls = {day:day, tok:tok, user:user, days:{}}
+    var nulls = {habits:[], day:TODAY, tok:tok, user:user, days:{}, notes:[]}
     var fuckjs = this;
     if (user && tok) {
-      getUpdates(user, tok, day, function(x){fuckjs.setState(x)}) }
+      getUpdates(this, user, tok, day, function(x){fuckjs.setState(x)}) }
     return nulls; },
 
   render: function(){
+    var tmp = function(x) { console.log(x) }
     var st = this.state
     if (!(st.user && st.tok)) { return(
       <div>
@@ -267,6 +257,7 @@ var App = React.createClass({
         <DayNav day={st.day} next={this.shiftDate(1)} back={this.shiftDate(-1)}
           />
         <HabitList habitInfo={getDay(st.days,st.day)} />
+        <Notes renameNote={tmp} addNote={tmp} noteList={st.notes} />
         <History habitData={st.days} today={st.day} />
         <LogoutForm logout={logout} />
         </ul> )}})
@@ -299,21 +290,21 @@ var json = function(s) {
   else {return {}} }
 
 var getHistory30 = function(cont) {
-  rpc(TOK,"Query",{History30:[USER,day]},cont) }
+  rpc(TOK,"Query",{History30:[USER,TODAY]},cont) }
 
 var getChains = function(cont) {
-  rpc(TOK,"Query",{GetChains:[USER,day]},cont) }
+  rpc(TOK,"Query",{GetChains:[USER,TODAY]},cont) }
 
 var delNote = function(note,cont) {
   return function(){
-    rpc(TOK,"Update",{DelNote:[USER,day,note]},cont) }}
+    rpc(TOK,"Update",{DelNote:[USER,TODAY,note]},cont) }}
 
 var delHabit = function(habit,cont) {
   return function(){
     rpc(TOK,"Update",{DelHabit:[USER,habit]},cont) }}
 
 var getNotes = function(cont) {
-  rpc(TOK,"Query",{GetNotes:[USER,day]},cont) }
+  rpc(TOK,"Query",{GetNotes:[USER,TODAY]},cont) }
 
 var allHabits = function(cont) {
   rpc(TOK,"Query",{ListHabits:USER},cont) }
@@ -337,77 +328,110 @@ var setDone = function(day, habit, statusCode, num, cont) {
 var TOK = localStorage.getItem("token")
 var USER = localStorage.getItem("username")
 
-var getUpdates = function(user, tok, day, cont){
+
+var responsesToState = function(app, habitSet, notes, chains, history) {
+  var days = app.state.days
+  _.forEach(history, function(_,day){
+    days[day]=getDay(days,day) })
+  _.forEach(habitSet, function(habit) {
+    _.forEach(history, function(_, day) {
+      habSt = getHabit(days[day],habit)
+      habSt.status = habitClass(history[day][habit])
+      habSt.num = habitNum(history[day][habit])
+      habSt.chains = ("chains" in habSt) ? habSt.chains : 0
+      days[day][habit] = habSt })})
+  _.forEach(habitSet, function(habit) {
+    if (habit in chains) {
+      days[TODAY][habit].chains = chains[habit] }})
+  return (
+    { habits:habitSet, day:TODAY, user:USER, tok:TOK, days:days
+    , notes:["hi"]} )}
+
+var updateChains = function (app, chains){
+  console.log(chains);
+  _.forEach(chains, function(length,habit){
+    console.log("chained!",app.state.day,habit,length)
+    daySt = getDay(app.state.days,app.state.day)
+    habSt = getHabit(daySt, habit)
+    habSt.chains = length
+    daySt[habit] = habSt
+    app.state.days[app.state.day] = daySt; })
+  app.setState(app.state); }
+
+var getUpdates = function(app, user, tok, day, cont){
   getHistory30(function(historyResponse) {
     var history = historyResponse["HISTORY"]
-    getChains(function(chainsResponse) {
-      chains = chainsResponse["CHAINS"]
       getNotes(function(noteResponse) {
         notes = noteResponse["NOTES"]
         allHabits(function(response) {
           var habitSet = response["HABITS"]
           var f = responsesToState;
-          cont(f(habitSet,notes,chains,history)) })})})})}
+          cont(f(app, habitSet,notes,{},history))
+          })})})
+  getChains(function(chainsResponse) {
+    chains = chainsResponse["CHAINS"]
+    updateChains(app, chains)
+    console.log("got dem chains off!") })}
 
 
 //////////////////////////////////////////////////////////////////////////////
 // Inject CSS
 var stylesheet =
-	[ "form {margin:0}"
-	, "div.toplevel { max-width:480; width:95%; margin:0 auto; }"
-	, "ul#notices { padding: 0; }"
-	, "h1.header { text-align:center; }"
-	, ".refutable {"
-	, "  border-width:1; border-style:solid;"
-	, "  padding:2px; margin:1px; display:inline-block; }"
-	, "	rect.refutable {"
-	, "		stroke-width: 0.3;"
-	, "		stroke: black; }"
-	, ".pairLeft { margin-right:0 }"
-	, ".pairRight { margin-left:-2; }"
-	, ".history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }"
-	, "table.history { margin:0 auto; }"
-	, "div.historyTD { min-width:13; min-height:13 }"
-	, "td.history { border: 0px solid }"
-	, ".datechange { forground-color:blue; text-decoration:underline; }"
-	, ".success { background-color:#88ff88; border-color:#228822; }"
-	, ".failure { background-color:#ff8888; border-color:#882222; }"
-	, ".unspecified { border: 0px solid #9999dd; background-color:#ddddff }"
-	, ".refutable:hover { background-color:yellow; }"
-	, "td.history { border: 0px solid white }"
-	, "rect.success { fill: green; }"
-	, "rect.failure { fill: red; }"
-	, "rect.unspecified { fill: #ddddff; }"
-	, "rect.refutable:hover { fill: yellow; }"
-	, "input.note { width:100%; border-width:0; }"
-	, "ul.note { padding: 0; list-style: none; }"
-	, "input.note { background-color:inherit; }"
-	, "li.note:hover { background-color:yellow; }"
-	, "input.note:focus { outline: 0; }"
-	, "li.note {"
-	, "  padding: 3px;"
-	, "  margin: 2px;"
-	, "  display: inline-block;"
-	, "  width: 97%;"
-	, "  border-width: 0 2px 0 2px;"
-	, "  border-style: solid; }"
-	, "div.tooltip::before {"
-	, "  content: attr(data-tip);"
-	, "  font-size: 10px;"
-	, "  position:absolute;"
-	, "  z-index: 999;"
-	, "  white-space:nowrap;"
-	, "  bottom:9999px;"
-	, "  left: 50%;"
-	, "  background:#000;"
-	, "  color:#e0e0e0;"
-	, "  padding:0px 7px;"
-	, "  line-height: 24px;"
-	, "  height: 24px;"
-	, "  opacity: 0;"
-	, "  transition:opacity 0.4s ease-out; }"
-	, "div.tooltip:hover::before { opacity: 1; bottom:-35px; }"
-	]
+  [ "form {margin:0}"
+  , "div.toplevel { max-width:480; width:95%; margin:0 auto; }"
+  , "ul#notices { padding: 0; }"
+  , "h1.header { text-align:center; }"
+  , ".refutable {"
+  , "  border-width:1; border-style:solid;"
+  , "  padding:2px; margin:1px; display:inline-block; }"
+  , "  rect.refutable {"
+  , "    stroke-width: 0.3;"
+  , "    stroke: black; }"
+  , ".pairLeft { margin-right:0 }"
+  , ".pairRight { margin-left:-2; }"
+  , ".history { cellpadding:0; cellspacing:0; spacing:0; padding:0; border:0; }"
+  , "table.history { margin:0 auto; }"
+  , "div.historyTD { min-width:13; min-height:13 }"
+  , "td.history { border: 0px solid }"
+  , ".datechange { forground-color:blue; text-decoration:underline; }"
+  , ".success { background-color:#88ff88; border-color:#228822; }"
+  , ".failure { background-color:#ff8888; border-color:#882222; }"
+  , ".unspecified { border: 0px solid #9999dd; background-color:#ddddff }"
+  , ".refutable:hover { background-color:yellow; }"
+  , "td.history { border: 0px solid white }"
+  , "rect.success { fill: green; }"
+  , "rect.failure { fill: red; }"
+  , "rect.unspecified { fill: #ddddff; }"
+  , "rect.refutable:hover { fill: yellow; }"
+  , "input.note { width:100%; border-width:0; }"
+  , "ul.note { padding: 0; list-style: none; }"
+  , "input.note { background-color:inherit; }"
+  , "li.note:hover { background-color:yellow; }"
+  , "input.note:focus { outline: 0; }"
+  , "li.note {"
+  , "  padding: 3px;"
+  , "  margin: 2px;"
+  , "  display: inline-block;"
+  , "  width: 97%;"
+  , "  border-width: 0 2px 0 2px;"
+  , "  border-style: solid; }"
+  , "div.tooltip::before {"
+  , "  content: attr(data-tip);"
+  , "  font-size: 10px;"
+  , "  position:absolute;"
+  , "  z-index: 999;"
+  , "  white-space:nowrap;"
+  , "  bottom:9999px;"
+  , "  left: 50%;"
+  , "  background:#000;"
+  , "  color:#e0e0e0;"
+  , "  padding:0px 7px;"
+  , "  line-height: 24px;"
+  , "  height: 24px;"
+  , "  opacity: 0;"
+  , "  transition:opacity 0.4s ease-out; }"
+  , "div.tooltip:hover::before { opacity: 1; bottom:-35px; }"
+  ]
 
 var node = document.createElement('style')
 node.innerHTML = stylesheet.join("\n")
@@ -433,9 +457,9 @@ login = function (user,pass) {
       main() }})}
 
 main = function(){
-	USER = localStorage.getItem("username")
-	TOK = localStorage.getItem("token")
-	React.unmountComponentAtNode(document.getElementById('notices'))
+  USER = localStorage.getItem("username")
+  TOK = localStorage.getItem("token")
+  React.unmountComponentAtNode(document.getElementById('notices'))
   React.renderComponent(<App />, document.getElementById('notices')) }
 
 main()
