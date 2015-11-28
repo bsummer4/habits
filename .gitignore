@@ -1,10 +1,11 @@
-*.o
 *.hi
-dist
-cabal.sandbox.config
+*.o
 *.swp
 .cabal-sandbox
-state
+.stack-work/
+cabal.sandbox.config
 certificate.pem
 client_session_key.aes
+dist
 key.pem
+state

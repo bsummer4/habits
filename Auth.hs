@@ -1,7 +1,3 @@
-{-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
-{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
-
 module Auth
   ( User, Password, Token, Registrations
   , mkPass, emptyRegistrations
@@ -9,19 +5,18 @@ module Auth
   , module Web.ClientSession
   ) where
 
-import ClassyPrelude
-import Prelude.Unicode
+import           ClassyPrelude
+import           Control.Monad.State  (put)
 import qualified Crypto.PasswordStore as PW
-import qualified Data.Aeson as J
-import qualified Data.ByteString as BS
+import           Data.Acid
+import qualified Data.Aeson           as J
+import qualified Data.ByteString      as BS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Map as Map
-import qualified Data.Text.Encoding as Text
-import Web.ClientSession
-import Data.Acid
-import Data.SafeCopy
-import Control.Monad.State (put)
-import Control.Monad.Reader (ask)
+import qualified Data.Map             as Map
+import           Data.SafeCopy
+import qualified Data.Text.Encoding   as Text
+import           Prelude.Unicode
+import           Web.ClientSession
 
 data Password = Password ByteString
 type User = ByteString

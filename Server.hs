@@ -1,35 +1,29 @@
-{-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
-{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# OPTIONS_GHC -fno-warn-unused-binds #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-import ClassyPrelude
-import Prelude.Unicode
-import Data.Acid
-import Data.SafeCopy
-import Prelude (read)
-import System.Environment (getEnv)
-import Control.Monad
-import Data.Maybe (fromJust)
-import Control.Monad.Reader (ask)
-import Control.Monad.State (put)
-import Language.Haskell.TH
-import qualified Network.HTTP.Types as W
-import qualified Network.Wai as W
-import qualified Network.Wai.Handler.Warp as W
-import qualified Network.Wai.Handler.WarpTLS as W
-import qualified Data.Aeson as J
-import qualified Data.Aeson.TH as J
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import qualified State as DB
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Char8 as ASCII
-import qualified Auth as Auth
-import qualified Web.ClientSession as ClientSession
+module Main(main,css,cssfile,forExample) where
+
+import qualified Auth                        as Auth
+import           ClassyPrelude
+import           Control.Monad
+import           Control.Monad.State         (put)
+import           Data.Acid
+import qualified Data.Aeson                  as J
+import qualified Data.Aeson.TH               as J
+import qualified Data.ByteString.Lazy        as LBS
+import qualified Data.ByteString.Lazy.Char8  as ASCII
+import qualified Data.Map                    as Map
+import           Data.Maybe                  (fromJust)
+import           Data.SafeCopy
+import qualified Data.Set                    as Set
+import           Language.Haskell.TH
+import qualified Network.HTTP.Types          as W
+import qualified Network.Wai                 as W
+import qualified Network.Wai.Handler.Warp    as W
+import           Prelude                     (read)
+import           Prelude.Unicode
+import qualified State                       as DB
+import           System.Environment          (getEnv)
+import qualified Web.ClientSession           as ClientSession
 
 data Resp
   = OK
@@ -94,29 +88,30 @@ instance J.FromJSON α ⇒ J.FromJSON (Map DB.Habit α) where
       Nothing → mzero
       Just kvs → return $ Map.fromList kvs
 
-$(deriveSafeCopy 0 'base ''Resp)
-$(deriveSafeCopy 0 'base ''RUpdate)
-$(deriveSafeCopy 0 'base ''RQuery)
-
+fix ∷ (s → s) → Update s ()
 fix f = (f <$> liftQuery ask) >>= put
 
 updateState ∷ RUpdate → Update DB.State ()
-updateState (SetHabitsStatus u d h status) = fix(DB.setHabitStatus u d h status)
-updateState (AddNote u d n) = fix(DB.addNote u d n)
-updateState (DelNote u d n) = fix(DB.delNote u d n)
-updateState (AddHabit u h) = fix(DB.addHabit u h)
-updateState (DelHabit u h) = fix(DB.delHabit u h)
-updateState (RenameHabit u old new) = fix(DB.renameHabit u old new)
+updateState = \case
+    SetHabitsStatus u d h status → fix (DB.setHabitStatus u d h status)
+    AddNote u d n                → fix (DB.addNote u d n)
+    DelNote u d n                → fix (DB.delNote u d n)
+    AddHabit u h                 → fix (DB.addHabit u h)
+    DelHabit u h                 → fix (DB.delHabit u h)
+    RenameHabit u old new        → fix (DB.renameHabit u old new)
 
 queryState ∷ RQuery → Query DB.State Resp
-queryState (GetHabitsStatus u d) = STATUSES <$> DB.habitsStatus u d <$> ask
-queryState (GetChains u d) = CHAINS <$> DB.chains u d <$> ask
-queryState (GetNotes u d) = NOTES <$> DB.getNotes u d <$> ask
-queryState (ListHabits u) = HABITS <$> DB.userHabits u <$> ask
-queryState (History30 u d) = HISTORY <$> DB.getHistory30 u d <$> ask
+queryState = \case
+    GetHabitsStatus u d → STATUSES <$> DB.habitsStatus u d <$> ask
+    GetChains u d       → CHAINS   <$> DB.chains u d       <$> ask
+    GetNotes u d        → NOTES    <$> DB.getNotes u d     <$> ask
+    ListHabits u        → HABITS   <$> DB.userHabits u     <$> ask
+    History30 u d       → HISTORY  <$> DB.getHistory30 u d <$> ask
 
+$(deriveSafeCopy 0 'base ''Resp)
+$(deriveSafeCopy 0 'base ''RUpdate)
+$(deriveSafeCopy 0 'base ''RQuery)
 $(makeAcidic ''DB.State ['queryState, 'updateState])
-
 
 -- [[Authentication and Authorization]]
 tokenUserMatch ∷ AcidState Auth.Registrations → Auth.Token → Auth.User → IO Bool
@@ -162,27 +157,23 @@ respond authdb db req = do
     Query _ r → query db (QueryState r)
     Update _ r → update db (UpdateState r) >> return OK
 
+js,css,html ∷ [(W.HeaderName, ByteString)]
 html = [("Content-Type", "text/html")]
-js = [("Content-Type", "application/javascript")]
-css = [("Content-Type", "text/css")]
+js   = [("Content-Type", "application/javascript")]
+css  = [("Content-Type", "text/css")]
 
-htmlfile ∷ LBS.ByteString
+htmlfile, cssfile, jsfile ∷ LBS.ByteString
 htmlfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.html"))
+cssfile  = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.css"))
+jsfile   = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.js"))
 
-cssfile ∷ LBS.ByteString
-cssfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.css"))
-
-jsfile ∷ LBS.ByteString
-jsfile = $(runQ $ (LitE∘StringL) <$> (runIO $ readFile "./client.js"))
-
-
-app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Request → IO W.Response
-app authdb db webreq =
+app ∷ AcidState Auth.Registrations → AcidState DB.State → W.Application
+app authdb db webreq callback =
   if "GET" ≡ W.requestMethod webreq
   then case W.pathInfo webreq of
-    [] → return $ W.responseLBS W.ok200 html htmlfile
-    ["client.js"] → return $ W.responseLBS W.ok200 js jsfile
-    _ → return $ W.responseLBS W.notFound404 [] ""
+    []            → callback $ W.responseLBS W.ok200 html htmlfile
+    ["client.js"] → callback $ W.responseLBS W.ok200 js jsfile
+    _             → callback $ W.responseLBS W.notFound404 [] ""
   else do
     body ← W.lazyRequestBody webreq
     putStrLn "=========="
@@ -191,16 +182,14 @@ app authdb db webreq =
       Nothing → return MALFORMED_REQUEST
       Just req → respond authdb db req
     ASCII.putStrLn $ J.encode resp
-    return $ W.responseLBS W.ok200 js $ J.encode resp
+    callback $ W.responseLBS W.ok200 js $ J.encode resp
 
 main ∷ IO ()
 main = do
-  let tlsOpts = W.defaultTlsSettings
-  port ← getEnv "PORT" >>= return∘read
-  let warpOpts = W.setPort port W.defaultSettings
-  db ← openLocalState DB.emptyState
+  port   ← getEnv "PORT" >>= return∘read
+  db     ← openLocalState DB.emptyState
   authdb ← openLocalState Auth.emptyRegistrations
-  finally (W.runTLS tlsOpts warpOpts $ app authdb db) $ do
+  finally (W.run port $ app authdb db) $ do
     createCheckpoint db
     createCheckpoint authdb
     closeAcidState db

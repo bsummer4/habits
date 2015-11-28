@@ -1,8 +1,3 @@
-{-# LANGUAGE OverloadedStrings, UnicodeSyntax, QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell, DeriveDataTypeable, TypeFamilies #-}
-{-# LANGUAGE NoImplicitPrelude, ScopedTypeVariables, StandaloneDeriving #-}
-{-# LANGUAGE RankNTypes, LambdaCase #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module State
@@ -15,16 +10,16 @@ module State
   , Msg(..), respond
   ) where
 
-import ClassyPrelude
-import Prelude.Unicode
-import Data.SafeCopy
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import qualified Data.Text as Text
-import Data.Time.Calendar (addDays)
-import qualified Data.Aeson as J
-import qualified Data.Aeson.TH as J
-import Control.Lens
+import           ClassyPrelude
+import           Control.Lens
+import qualified Data.Aeson         as J
+import qualified Data.Aeson.TH      as J
+import qualified Data.Map           as Map
+import           Data.SafeCopy
+import qualified Data.Set           as Set
+import qualified Data.Text          as Text
+import           Data.Time.Calendar (addDays)
+import           Prelude.Unicode
 
 
 -- [[Datatypes]]
@@ -121,6 +116,8 @@ textUser t = if validUsername (decodeUtf8 t) then Just t else Nothing
 
 -- [[Operations]]
 infixr 5 ∪
+
+(∪) ∷ Map Habit a → Map Habit a → Map Habit a
 (∪) = Map.union
 
 user ∷ User → Lens' State UserState
